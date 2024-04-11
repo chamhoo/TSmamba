@@ -32,7 +32,7 @@ def get_parser():
 
     # Training arguments  --------------------------------------
     parser.add_argument('--patience', default=10, type=int)
-    parser.add_argument('--scheduler_method', default="None", type=str, help="OneCycleLR/ReduceLROnPlateau/None")
+    parser.add_argument('--scheduler_method', default="None", type=str, help="OneCycleLR/ReduceLROnPlateau/Cosine/None")
     parser.add_argument('--learning_rate', default=0.001, type=float)
     parser.add_argument('--early_stop', default=False, type=bool)
     parser.add_argument('--num_epochs', default=50, type=int)

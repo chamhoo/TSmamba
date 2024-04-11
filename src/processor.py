@@ -1,18 +1,33 @@
 import torch
 import torch.nn as nn
-from torch.optim.lr_scheduler import OneCycleLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import OneCycleLR, ReduceLROnPlateau, CosineAnnealingLR
 
 from .star import STAR
 from .utils import *
 
+import requests
 import json
 from tqdm import tqdm
 # torch.autograd.set_detect_anomaly(True)
+
 
 torch.manual_seed(0)
 np.random.seed(0)
 random.seed(0)
 
+
+def sendwx(epoch, trainloss, ade, fed):
+    content = "epoch {}\n trainloss {:.5f}\n ade {:.5f}\n fde {:.5f}".format(epoch, trainloss, ade, fed)
+    headers = {'content-type': "application/json"}
+    body = {
+        "appToken":"AT_TOcM7qtMiAfQkW3aRmyj63gkeJsX8q87",
+        "content":content,
+        "summary":"training is done",
+        "contentType":1,
+        "topicIds":[],
+        "uids":["UID_qEODZI8jViJJjCLLz2Bgws9SkY4r"]
+    }
+    ret = requests.post('http://wxpusher.zjiecode.com/api/send/message', data=json.dumps(body), headers=headers)
 
 
 class processor(object):
@@ -43,7 +58,7 @@ class processor(object):
 
         self.best_ade = 100
         self.best_fde = 100
-        self.best_epoch = -1
+        self.best_loss = 100
         self.scheduler = None
 
 
@@ -103,81 +118,97 @@ class processor(object):
         # num_epochs 
         # test_set 
         # learning_rate 
-        # early_stopping 
-        print('Training begin ...')
-        print("&&&&&&& Hyper Parameters &&&&&&&&&&&&")
-        for key, value in self.model_parameters.items():
-            print(f"{key}: {value}")
-        print("")
-        print(f"Scheduler Method: {self.args.scheduler_method}")
-        print(f"batch_around_ped: {self.args.batch_around_ped}")
-        print(f"# of epochs: {self.args.num_epochs}")
-        print(f"Test Set: {self.args.test_set}")
-        print(f"Learning Rate: {self.args.learning_rate}")
-        print(f"Early Stopping: {self.args.early_stop}")
-        print(f"Model Path: {self.args.save_base_dir}")
-        print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
+        # early_stopping
+        try: 
+            print('Training begin ...')
+            print("&&&&&&& Hyper Parameters &&&&&&&&&&&&")
+            for key, value in self.model_parameters.items():
+                print(f"{key}: {value}")
+            print("")
+            print(f"Scheduler Method: {self.args.scheduler_method}")
+            print(f"batch_around_ped: {self.args.batch_around_ped}")
+            print(f"# of epochs: {self.args.num_epochs}")
+            print(f"Test Set: {self.args.test_set}")
+            print(f"Learning Rate: {self.args.learning_rate}")
+            print(f"Early Stopping: {self.args.early_stop}")
+            print(f"Model Path: {self.args.save_base_dir}")
+            print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
 
-        test_error, test_final_error = 0, 0
-        start_epoch = self.load_model()
-        # 定义 LR
-        if self.args.scheduler_method == "OneCycleLR":
-            self.scheduler = OneCycleLR(
-                self.optimizer, 
-                max_lr=0.01, 
-                steps_per_epoch=self.dataloader.trainbatchnums, 
-                epochs=self.args.num_epochs - start_epoch
-                )
-            
-        elif self.args.scheduler_method == "ReduceLROnPlateau":
-            self.scheduler = ReduceLROnPlateau(
-                self.optimizer, 
-                mode='min', 
-                factor=0.1, 
-                patience=self.args.patience//2, 
-                )
-        else:
-            pass
-        
-        for epoch in range(start_epoch, self.args.num_epochs):
-
-            self.net.train()
-            train_loss = self.train_epoch(epoch)
-
-            if epoch >= self.args.start_test:
-                self.net.eval()
-                test_error, test_final_error = self.test_epoch()
-                # Best ADE & FDE
-                self.best_ade = test_error if test_final_error < self.best_fde else self.best_ade
-                self.best_fde = test_final_error if test_final_error < self.best_fde else self.best_fde
-                # if best epoch:
-                if (test_final_error <= self.best_fde) or (test_error <= self.best_ade):
-                    self.save_model(epoch, train_loss)
-                    self.best_epoch = epoch
-                else:
-                    if (self.best_epoch + self.args.patience < epoch) and self.args.early_stop:
-                        break
-
-            self.log_file_curve.write(
-                str(epoch) + ',' + str(train_loss) + ',' + str(test_error) + ',' + str(test_final_error) + ',' + str(
-                    self.args.learning_rate) + '\n')
-
-            if epoch % 1 == 0:
-                self.log_file_curve.close()
-                self.log_file_curve = open(os.path.join(self.args.model_dir, 'log_curve.txt'), 'a+')
-
-            current_lr = self.optimizer.param_groups[0]['lr']
-            if epoch >= self.args.start_test:
-                print(
-                    '----epoch {}, lr={:.6f}, train_loss={:.5f}, ADE={:.3f}, FDE={:.3f}, Best_ADE={:.3f}, Best_FDE={:.3f} at Epoch {}'
-                        .format(epoch, current_lr, train_loss, test_error, test_final_error, self.best_ade, self.best_fde,
-                                self.best_epoch))
+            test_error, test_final_error = 0, 0
+            start_epoch = self.load_model()
+            # 定义 LR
+            if self.args.scheduler_method == "OneCycleLR":
+                self.scheduler = OneCycleLR(
+                    self.optimizer, 
+                    max_lr=0.01, 
+                    steps_per_epoch=self.dataloader.trainbatchnums, 
+                    epochs=self.args.num_epochs - start_epoch
+                    )
+                
+            elif self.args.scheduler_method == "ReduceLROnPlateau":
+                self.scheduler = ReduceLROnPlateau(
+                    self.optimizer, 
+                    mode='min', 
+                    factor=0.1, 
+                    patience=self.args.patience//2, 
+                    )
+            elif self.args.scheduler_method == "Cosine":
+                self.scheduler = CosineAnnealingLR(
+                    self.optimizer, T_max=10
+                    )
             else:
-                print('----epoch {}, train_loss={:.5f}, lr={:.6f}'
-                      .format(epoch, train_loss, current_lr))
-            # 更新学习率
-            if self.args.scheduler_method == "ReduceLROnPlateau":
-                self.scheduler.step(test_final_error)
+                pass
+            
+            for epoch in range(start_epoch, self.args.num_epochs):
+
+                self.net.train()
+                train_loss = self.train_epoch(epoch)
+
+                if epoch >= self.args.start_test:
+                    self.net.eval()
+                    test_error, test_final_error = self.test_epoch()
+                    indicator = []
+                    # Best LOSS ADE & FDE
+                    if train_loss < self.best_loss:
+                        self.best_loss = train_loss
+                        indicator.append(" loss- ")
+                    if test_error < self.best_ade:
+                        self.best_ade = test_error
+                        indicator.append(" ade- ")
+                    if test_final_error < self.best_fde:
+                        self.best_fde = test_final_error
+                        indicator.append(" fde- ")
+                    
+                    # if best epoch:
+                    if (test_final_error <= self.best_fde) or (test_error <= self.best_ade):
+                        self.save_model(epoch, train_loss)
+                    else:
+                        if (self.best_loss + self.args.patience < epoch) and self.args.early_stop:
+                            break
+
+                self.log_file_curve.write(
+                    str(epoch) + ',' + str(train_loss) + ',' + str(test_error) + ',' + str(test_final_error) + ',' + str(
+                        self.args.learning_rate) + '\n')
+
+                if epoch % 1 == 0:
+                    self.log_file_curve.close()
+                    self.log_file_curve = open(os.path.join(self.args.model_dir, 'log_curve.txt'), 'a+')
+
+                current_lr = self.optimizer.param_groups[0]['lr']
+                if epoch >= self.args.start_test:
+                    print(
+                        '----epoch {}, lr={:.6f}, train_loss={:.5f}, ADE={:.3f}, FDE={:.3f}, {}'
+                            .format(epoch, current_lr, train_loss, test_error, test_final_error, " | ".join(indicator)))
+                else:
+                    print('----epoch {}, train_loss={:.5f}, lr={:.6f}'
+                        .format(epoch, train_loss, current_lr))
+                # 更新学习率
+                if self.args.scheduler_method == "ReduceLROnPlateau":
+                    self.scheduler.step(test_final_error)
+                if self.args.scheduler_method == "Cosine":
+                    self.scheduler.step()
+        finally:
+            sendwx(epoch, self.best_loss, self.best_ade, self.best_fde)
 
     def train_epoch(self, epoch):
 
