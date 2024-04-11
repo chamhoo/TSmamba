@@ -163,28 +163,26 @@ class processor(object):
 
                 self.net.train()
                 train_loss = self.train_epoch(epoch)
-
-                if epoch >= self.args.start_test:
-                    self.net.eval()
-                    test_error, test_final_error = self.test_epoch()
-                    indicator = []
-                    # Best LOSS ADE & FDE
-                    if train_loss < self.best_loss:
-                        self.best_loss = train_loss
-                        indicator.append(" loss- ")
-                    if test_error < self.best_ade:
-                        self.best_ade = test_error
-                        indicator.append(" ade- ")
-                    if test_final_error < self.best_fde:
-                        self.best_fde = test_final_error
-                        indicator.append(" fde- ")
-                    
-                    # if best epoch:
-                    if (test_final_error <= self.best_fde) or (test_error <= self.best_ade):
-                        self.save_model(epoch, train_loss)
-                    else:
-                        if (self.best_loss + self.args.patience < epoch) and self.args.early_stop:
-                            break
+                self.net.eval()
+                test_error, test_final_error = self.test_epoch()
+                indicator = []
+                # Best LOSS ADE & FDE
+                if train_loss < self.best_loss:
+                    self.best_loss = train_loss
+                    indicator.append(" loss- ")
+                if test_error < self.best_ade:
+                    self.best_ade = test_error
+                    indicator.append(" ade- ")
+                if test_final_error < self.best_fde:
+                    self.best_fde = test_final_error
+                    indicator.append(" fde- ")
+                
+                # if best epoch:
+                if (test_final_error <= self.best_fde) or (test_error <= self.best_ade):
+                    self.save_model(epoch, train_loss)
+                else:
+                    if (self.best_loss + self.args.patience < epoch) and self.args.early_stop:
+                        break
 
                 self.log_file_curve.write(
                     str(epoch) + ',' + str(train_loss) + ',' + str(test_error) + ',' + str(test_final_error) + ',' + str(
@@ -195,13 +193,9 @@ class processor(object):
                     self.log_file_curve = open(os.path.join(self.args.model_dir, 'log_curve.txt'), 'a+')
 
                 current_lr = self.optimizer.param_groups[0]['lr']
-                if epoch >= self.args.start_test:
-                    print(
-                        '----epoch {}, lr={:.6f}, train_loss={:.5f}, ADE={:.3f}, FDE={:.3f}, {}'
-                            .format(epoch, current_lr, train_loss, test_error, test_final_error, " | ".join(indicator)))
-                else:
-                    print('----epoch {}, train_loss={:.5f}, lr={:.6f}'
-                        .format(epoch, train_loss, current_lr))
+                print(
+                    '----epoch {}, lr={:.6f}, train_loss={:.5f}, ADE={:.3f}, FDE={:.3f}, {}'
+                        .format(epoch, current_lr, train_loss, test_error, test_final_error, " | ".join(indicator)))
                 # 更新学习率
                 if self.args.scheduler_method == "ReduceLROnPlateau":
                     self.scheduler.step(test_final_error)
@@ -251,13 +245,6 @@ class processor(object):
             # end = time.time()
             if self.args.scheduler_method == "OneCycleLR":
                 self.scheduler.step()
-            # if batch % self.args.show_step == 0 and self.args.ifshow_detail:
-            #     print(
-            #         'train-{}/{} (epoch {}), train_loss = {:.5f}, time/batch = {:.5f} '.format(batch,
-            #                                                                                    self.dataloader.trainbatchnums,
-            #                                                                                    epoch, loss.item(),
-            #                                                                                    end - start))
-            # 更新进度条并显示当前batch的loss
             pbar.set_description(f"Loss: {loss.item():.4f}")
             pbar.update(1)
         pbar.close()

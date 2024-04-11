@@ -32,10 +32,10 @@ def get_parser():
 
     # Training arguments  --------------------------------------
     parser.add_argument('--patience', default=10, type=int)
-    parser.add_argument('--scheduler_method', default="None", type=str, help="OneCycleLR/ReduceLROnPlateau/Cosine/None")
+    parser.add_argument('--scheduler_method', default="Cosine", type=str, help="OneCycleLR/ReduceLROnPlateau/Cosine/None")
     parser.add_argument('--learning_rate', default=0.001, type=float)
-    parser.add_argument('--early_stop', default=False, type=bool)
-    parser.add_argument('--num_epochs', default=50, type=int)
+    parser.add_argument('--early_stop', default=True, type=bool)
+    parser.add_argument('--num_epochs', default=100, type=int)
 
     # &&&&&&&&&&&&&& LEVEL 2 Arguments: Rarely Changes &&&&&&&&&&&&&& 
     # Data Processing  --------------------------------------
@@ -51,11 +51,7 @@ def get_parser():
     parser.add_argument('--using_cuda', default=True, type=ast.literal_eval)
     # parser.add_argument('--model', default='star.STAR')
     # train --------------------------------------------------
-    parser.add_argument('--show_step', default=100, type=int)
-    parser.add_argument('--start_test', default=0, type=int)
     parser.add_argument('--sample_num', default=20, type=int)
-    
-    parser.add_argument('--ifshow_detail', default=False, type=ast.literal_eval)
     parser.add_argument('--randomRotate', default=True, type=ast.literal_eval,
                         help="=True:random rotation of each trajectory fragment")
     parser.add_argument('--clip', default=1, type=int)
