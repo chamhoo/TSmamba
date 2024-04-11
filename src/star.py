@@ -65,16 +65,18 @@ class STAR(torch.nn.Module):
         self.emb = int(model_Hparameters["embedding"])
         self.temp_layers = int(model_Hparameters["n_layers"])
         self.spa_layers = int(self.temp_layers * model_Hparameters["ratio"])
+        bitmp = bool(model_Hparameters["bitmp"])
+        bispa = bool(model_Hparameters["bispa"])
 
         self.output_size = 2
         self.dropout_prob = model_Hparameters["dropout"]
         self.args = args
 
-        self.spatial_encoder_1 = MultiLayerMamba(d_model=self.emb, n_layer = self.spa_layers, bi=True)
-        self.spatial_encoder_2 = MultiLayerMamba(d_model=self.emb, n_layer = self.spa_layers, bi=True)
+        self.spatial_encoder_1 = MultiLayerMamba(d_model=self.emb, n_layer = self.spa_layers, bi=bispa)
+        self.spatial_encoder_2 = MultiLayerMamba(d_model=self.emb, n_layer = self.spa_layers, bi=bispa)
         # d_model = 64 for selective copying 
-        self.temporal_encoder_1 = MultiLayerMamba(d_model=self.emb, n_layer = self.temp_layers, bi=False)
-        self.temporal_encoder_2 = MultiLayerMamba(d_model=self.emb, n_layer = self.temp_layers, bi=False)
+        self.temporal_encoder_1 = MultiLayerMamba(d_model=self.emb, n_layer = self.temp_layers, bi=bitmp)
+        self.temporal_encoder_2 = MultiLayerMamba(d_model=self.emb, n_layer = self.temp_layers, bi=bitmp)
 
         # Linear layer to map input to embedding
         self.input_embedding_layer_temporal = nn.Linear(2, self.emb)

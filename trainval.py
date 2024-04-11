@@ -114,7 +114,9 @@ if __name__ == '__main__':
         "n_layers": 1,
         "ratio": 1,
         "embedding": 128,
-        "dropout": 0
+        "dropout": 0,
+        "bitmp": False,
+        "bispa": False
     }
     trainer = processor(args, model_parameters=model_Hparameters)
 
