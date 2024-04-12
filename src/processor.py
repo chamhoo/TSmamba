@@ -69,6 +69,10 @@ class processor(object):
                      str(epoch) + '.tar'
         torch.save({
             'epoch': epoch,
+            'best_loss': self.best_loss,
+            'best_epoch': self.best_epoch,
+            'best_ade': self.best_ade,
+            'best_fde': self.best_fde,
             'state_dict': self.net.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict()
         }, model_path)
@@ -87,6 +91,11 @@ class processor(object):
                 self.net.load_state_dict(checkpoint['state_dict'])
                 # 假设 optimizer 是你的优化器实例
                 self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                # ADE FDE LOSS EPOCH
+                self.best_epoch = checkpoint["best_epoch"]
+                self.best_loss = checkpoint["best_loss"]
+                self.best_ade = checkpoint["best_ade"]
+                self.best_fde =checkpoint["best_fde"]
                 # epoch and loss
                 start_epoch = model_epoch + 1
                 print('Loaded checkpoint at epoch', model_epoch)
