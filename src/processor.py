@@ -59,6 +59,7 @@ class processor(object):
         self.best_ade = 100
         self.best_fde = 100
         self.best_loss = 100
+        self.best_epoch = -1
         self.scheduler = None
 
 
@@ -169,6 +170,7 @@ class processor(object):
                 # Best LOSS ADE & FDE
                 if train_loss < self.best_loss:
                     self.best_loss = train_loss
+                    self.best_epoch = epoch
                     indicator.append(" loss- ")
                 if test_error < self.best_ade:
                     self.best_ade = test_error
@@ -180,8 +182,9 @@ class processor(object):
                 # if best epoch:
                 if (test_final_error <= self.best_fde) or (test_error <= self.best_ade):
                     self.save_model(epoch, train_loss)
+                    self.best_epoch = epoch
                 else:
-                    if (self.best_loss + self.args.patience < epoch) and self.args.early_stop:
+                    if (self.best_epoch + self.args.patience < epoch) and self.args.early_stop:
                         break
 
                 self.log_file_curve.write(
