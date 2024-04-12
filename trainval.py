@@ -22,6 +22,7 @@ def get_parser():
     parser = argparse.ArgumentParser(
         description='STAR')
     parser.add_argument('--phase', default='train', help='Set this value to \'train\' or \'test\'')
+    parser.add_argument('--sendwx', default=True, help='send a message to WX')
     # &&&&&&&&&&&&&& LEVEL 1 Arguments: frequent Changes &&&&&&&&&&&&&&
     # path -----------------------------------------------------
     parser.add_argument('--save_base_dir', default='./output', help='Directory for saving caches and models.')
@@ -107,7 +108,7 @@ if __name__ == '__main__':
     #     - ratio: The number of mambas used by the spatial layer is multiple times more than that used by the temporal layer
     #     - embedding
     model_Hparameters = {
-        "n_layers": 1,
+        "n_layers": 2,
         "ratio": 1,
         "embedding": 128,
         "dropout": 0,

@@ -202,7 +202,8 @@ class processor(object):
                 if self.args.scheduler_method == "Cosine":
                     self.scheduler.step()
         finally:
-            sendwx(epoch, self.best_loss, self.best_ade, self.best_fde)
+            if self.args.sendwx:
+                sendwx(epoch, self.best_loss, self.best_ade, self.best_fde)
 
     def train_epoch(self, epoch):
 
