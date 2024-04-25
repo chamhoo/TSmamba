@@ -62,21 +62,36 @@ class STAR(torch.nn.Module):
         #     - ratio: The number of mambas used by the spatial layer is multiple times more than that used by the temporal layer
         #     - embedding
         # set parameters for network architecture
+        # temp_config = {
+        #     "bi": False,
+        #     "attention": True,
+        #     "conv": True,
+        #     "kernel": 1,
+        #     "conv_group": 1 
+        # }
+        
+        # spa_config = {
+        #     "bi": True,
+        #     "attention": False,
+        #     "conv": True,
+        #     "kernel": 1,
+        #     "conv_group": 1 
+        # }
         self.emb = int(model_Hparameters["embedding"])
         self.temp_layers = int(model_Hparameters["n_layers"])
         self.spa_layers = int(self.temp_layers * model_Hparameters["ratio"])
-        bitmp = bool(model_Hparameters["bitmp"])
-        bispa = bool(model_Hparameters["bispa"])
+        tmpconf = model_Hparameters["tmp"]
+        spaconf = model_Hparameters["spa"]
 
         self.output_size = 2
         self.dropout_prob = model_Hparameters["dropout"]
         self.args = args
 
-        self.spatial_encoder_1 = MultiLayerMamba(d_model=self.emb, n_layer = self.spa_layers, bi=bispa)
-        self.spatial_encoder_2 = MultiLayerMamba(d_model=self.emb, n_layer = self.spa_layers, bi=bispa)
+        self.spatial_encoder_1 = MultiLayerMamba(d_model=self.emb, n_layer = self.spa_layers, mblock_config = spaconf)
+        self.spatial_encoder_2 = MultiLayerMamba(d_model=self.emb, n_layer = self.spa_layers, mblock_config = spaconf)
         # d_model = 64 for selective copying 
-        self.temporal_encoder_1 = MultiLayerMamba(d_model=self.emb, n_layer = self.temp_layers, bi=bitmp)
-        self.temporal_encoder_2 = MultiLayerMamba(d_model=self.emb, n_layer = self.temp_layers, bi=bitmp)
+        self.temporal_encoder_1 = MultiLayerMamba(d_model=self.emb, n_layer = self.temp_layers, mblock_config = tmpconf)
+        self.temporal_encoder_2 = MultiLayerMamba(d_model=self.emb, n_layer = self.temp_layers, mblock_config = tmpconf)
 
         # Linear layer to map input to embedding
         self.input_embedding_layer_temporal = nn.Linear(2, self.emb)

@@ -107,13 +107,29 @@ if __name__ == '__main__':
     #     - n_layers: # of layers in the temporal encoder
     #     - ratio: The number of mambas used by the spatial layer is multiple times more than that used by the temporal layer
     #     - embedding
+    temp_config = {
+        "bi": False,
+        "attention": True,
+        "conv": False,
+        "d_conv": 1,
+        "conv_group": 1 
+    }
+    
+    spa_config = {
+        "bi": True,
+        "attention": False,
+        "conv": False,
+        "d_conv": 1,
+        "conv_group": 1 
+    }
+
     model_Hparameters = {
-        "n_layers": 2,
+        "n_layers": 4,
         "ratio": 1,
-        "embedding": 128,
+        "embedding": 32,
         "dropout": 0,
-        "bitmp": False,
-        "bispa": False
+        "tmp": temp_config,
+        "spa": spa_config,
     }
     trainer = processor(args, model_parameters=model_Hparameters)
 

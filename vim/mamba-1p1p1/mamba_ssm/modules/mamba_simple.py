@@ -30,7 +30,13 @@ try:
 except ImportError:
     RMSNorm, layer_norm_fn, rms_norm_fn = None, None, None
 
-
+# temp_config = {
+#     "bi": False,
+#     "attention": True,
+#     "conv": True,
+#     "d_conv": 1,
+#     "conv_group": 1 
+# }
 class Mamba(nn.Module):
     def __init__(
         self,
@@ -46,13 +52,15 @@ class Mamba(nn.Module):
         dt_init_floor=1e-4,
         conv_bias=True,
         bias=False,
-        use_fast_path=True,  # Fused kernel options
         layer_idx=None,
         device=None,
         dtype=None,
-        bimamba_type="None",
         if_devide_out=False,
         init_layer_scale=None,
+        bi = False,
+        attention = True,
+        conv = True,
+        conv_group = None
     ):
         factory_kwargs = {"device": device, "dtype": dtype}
         super().__init__()
@@ -62,125 +70,119 @@ class Mamba(nn.Module):
         self.expand = expand
         self.d_inner = int(self.expand * self.d_model)
         self.dt_rank = math.ceil(self.d_model / 16) if dt_rank == "auto" else dt_rank
-        self.use_fast_path = use_fast_path
         self.layer_idx = layer_idx
-        self.bimamba_type = bimamba_type
+        self.bi = bi
         self.if_devide_out = if_devide_out
-
+        self.attention = attention
+        self.conv = conv
+        self.conv_group = conv_group
         self.init_layer_scale = init_layer_scale
-        if init_layer_scale is not None:
-            self.gamma = nn.Parameter(init_layer_scale * torch.ones((d_model)), requires_grad=True)
-
         self.in_proj = nn.Linear(self.d_model, self.d_inner * 2, bias=bias, **factory_kwargs)
-
-        self.conv1d = nn.Conv1d(
-            in_channels=self.d_inner,
-            out_channels=self.d_inner,
-            bias=conv_bias,
-            kernel_size=d_conv,
-            groups=self.d_inner,
-            padding=d_conv - 1,
-            **factory_kwargs,
-        )
-
-        self.activation = "silu"
+        
         self.act = nn.SiLU()
-
-        self.x_proj = nn.Linear(
-            self.d_inner, self.dt_rank + self.d_state * 2, bias=False, **factory_kwargs
-        )
-        self.dt_proj = nn.Linear(self.dt_rank, self.d_inner, bias=True, **factory_kwargs)
-
-        # Initialize special dt projection to preserve variance at initialization
-        dt_init_std = self.dt_rank**-0.5 * dt_scale
-        if dt_init == "constant":
-            nn.init.constant_(self.dt_proj.weight, dt_init_std)
-        elif dt_init == "random":
-            nn.init.uniform_(self.dt_proj.weight, -dt_init_std, dt_init_std)
-        else:
-            raise NotImplementedError
-
-        # Initialize dt bias so that F.softplus(dt_bias) is between dt_min and dt_max
-        dt = torch.exp(
-            torch.rand(self.d_inner, **factory_kwargs) * (math.log(dt_max) - math.log(dt_min))
-            + math.log(dt_min)
-        ).clamp(min=dt_init_floor)
-        # Inverse of softplus: https://github.com/pytorch/pytorch/issues/72759
-        inv_dt = dt + torch.log(-torch.expm1(-dt))
-        with torch.no_grad():
-            self.dt_proj.bias.copy_(inv_dt)
-        # Our initialization would set all Linear.bias to zero, need to mark this one as _no_reinit
-        self.dt_proj.bias._no_reinit = True
-
-        # S4D real initialization
-        A = repeat(
-            torch.arange(1, self.d_state + 1, dtype=torch.float32, device=device),
-            "n -> d n",
-            d=self.d_inner,
-        ).contiguous()
-        A_log = torch.log(A)  # Keep A_log in fp32
-        self.A_log = nn.Parameter(A_log)
-        self.A_log._no_weight_decay = True
-
-        # D "skip" parameter
-        self.D = nn.Parameter(torch.ones(self.d_inner, device=device))  # Keep in fp32
-        self.D._no_weight_decay = True
-
-        # bidirectional
-        if bimamba_type == "v1":
-            A_b = repeat(
-                torch.arange(1, self.d_state + 1, dtype=torch.float32, device=device),
-                "n -> d n",
-                d=self.d_inner,
-            ).contiguous()
-            A_b_log = torch.log(A_b)  # Keep A_b_log in fp32
-            self.A_b_log = nn.Parameter(A_b_log)
-            self.A_b_log._no_weight_decay = True
-        elif bimamba_type == "v2":
-            A_b = repeat(
-                torch.arange(1, self.d_state + 1, dtype=torch.float32, device=device),
-                "n -> d n",
-                d=self.d_inner,
-            ).contiguous()
-            A_b_log = torch.log(A_b)  # Keep A_b_log in fp32
-            self.A_b_log = nn.Parameter(A_b_log)
-            self.A_b_log._no_weight_decay = True 
-
-            self.conv1d_b = nn.Conv1d(
+        out_in_channels = self.d_inner*2 if bi else self.d_inner
+        self.out_proj = nn.Linear(out_in_channels, self.d_model, bias=bias, **factory_kwargs)
+        # forward and backward
+        type_lst = ["fwd"] if not self.bi else ["fwd", "bwd"]
+        for typ in type_lst:
+            # Convolution, activated when kernel size <= 1,
+            setattr(self, f"conv1d_{typ}", nn.Conv1d(
                 in_channels=self.d_inner,
                 out_channels=self.d_inner,
-                bias=conv_bias,
                 kernel_size=d_conv,
-                groups=self.d_inner,
+                groups=self.d_inner if self.d_conv > 1 else 1,
                 padding=d_conv - 1,
-                **factory_kwargs,
-            )
+                bias=conv_bias,
+                **factory_kwargs
+                ))
+            # S4D real initialization
+            A = repeat(
+                torch.arange(1, self.d_state + 1, dtype=torch.float32, device=device),
+                "n -> d n",
+                d=self.d_inner
+            ).contiguous()
 
-            self.x_proj_b = nn.Linear(
-                self.d_inner, self.dt_rank + self.d_state * 2, bias=False, **factory_kwargs
-            )
-            self.dt_proj_b = nn.Linear(self.dt_rank, self.d_inner, bias=True, **factory_kwargs)
+            A_log = torch.log(A)  # Keep A_log in fp32
+            A_log_param = nn.Parameter(A_log)
+            setattr(self, f"A_log_{typ}", A_log_param)
+            
+            # x ---> B, C, Delta
+            setattr(self, f"x_proj_{typ}", 
+                    nn.Linear(
+                        self.d_inner, 
+                        self.dt_rank + self.d_state * 2, 
+                        bias=False, 
+                        **factory_kwargs))
+            # Delta
+            dt_proj = nn.Linear(self.dt_rank, self.d_inner, bias=True, **factory_kwargs)
+            setattr(self, f"dt_proj_{typ}", dt_proj)
+            # Initialize special dt projection to preserve variance at initialization
+            dt_init_std = self.dt_rank**-0.5 * dt_scale
+            if dt_init == "constant":
+                nn.init.constant_(dt_proj.weight, dt_init_std)
+            elif dt_init == "random":
+                nn.init.uniform_(dt_proj.weight, -dt_init_std, dt_init_std)
+            else:
+                raise NotImplementedError
+            # Initialize dt bias so that F.softplus(dt_bias) is between dt_min and dt_max
+            dt = torch.exp(
+                torch.rand(self.d_inner, **factory_kwargs) * (math.log(dt_max) - math.log(dt_min))
+                + math.log(dt_min)
+            ).clamp(min=dt_init_floor)
+            # Inverse of softplus: https://github.com/pytorch/pytorch/issues/72759
+            inv_dt = dt + torch.log(-torch.expm1(-dt))
+            with torch.no_grad():
+                dt_proj.bias.data.copy_(inv_dt)
+            # D "skip" parameter
+            D_param = nn.Parameter(torch.ones(self.d_inner, device=device))
+            setattr(self, f"D_{typ}", D_param)
+            
+            # Set no weight decay
+            A_log_param._no_weight_decay = True
+            D_param._no_weight_decay = True
 
-            self.D_b = nn.Parameter(torch.ones(self.d_inner, device=device))  # Keep in fp32
-            self.D_b._no_weight_decay = True
+            # Mark dt_proj.bias as no reinit
+            dt_proj.bias._no_reinit = True
 
-        self.out_proj = nn.Linear(self.d_inner, self.d_model, bias=bias, **factory_kwargs)
+    def conv_ssm(self, x, z, typ):
+        seqlen = x.shape[-1]
+        # Compute convolution when kernel size <= 1
+        if self.conv:
+                x = self.act(getattr(self, f"conv1d_{typ}")(x))
+            # We're careful here about the layout, to avoid extra transposes.
+            # We want dt to have d as the slowest moving dimension
+            # and L as the fastest moving dimension, since those are what the ssm_scan kernel expects.
+        # A
+        A = -torch.exp(getattr(self, f"A_log_{typ}").float())
+        # x_proj, dt_proj, A
+        x_dbl = getattr(self, f"x_proj_{typ}")(rearrange(x, "b d l -> (b l) d"))  # (bl d)
+        dt, B, C = torch.split(x_dbl, [self.dt_rank, self.d_state, self.d_state], dim=-1)
+        dt = getattr(self, f"dt_proj_{typ}").weight @ dt.t()
+        dt = rearrange(dt, "d (b l) -> b d l", l=seqlen)
+        B = rearrange(B, "(b l) dstate -> b dstate l", l=seqlen).contiguous()
+        C = rearrange(C, "(b l) dstate -> b dstate l", l=seqlen).contiguous()
+        y = selective_scan_fn(
+            x,
+            dt,
+            A,
+            B,
+            C,
+            getattr(self, f"D_{typ}").float(),
+            z=z,
+            delta_bias=getattr(self, f"dt_proj_{typ}").bias.float(),
+            delta_softplus=True,
+            return_last_state=False,
+        )
+        y = rearrange(y, "b d l -> b l d")
+        return y
 
-    def forward(self, hidden_states, inference_params=None):
+    def forward(self, hidden_states):
         """
         hidden_states: (B, L, D)
         Returns: same shape as hidden_states
         """
         batch, seqlen, dim = hidden_states.shape
-
-        conv_state, ssm_state = None, None
-        if inference_params is not None:
-            conv_state, ssm_state = self._get_states_from_cache(inference_params, batch)
-            if inference_params.seqlen_offset > 0:
-                # The states are updated inplace
-                out, _, _ = self.step(hidden_states, conv_state, ssm_state)
-                return out
-
+        # xz
         # We do matmul and transpose BLH -> HBL at the same time
         xz = rearrange(
             self.in_proj.weight @ rearrange(hidden_states, "b l d -> d (b l)"),
@@ -189,175 +191,73 @@ class Mamba(nn.Module):
         )
         if self.in_proj.bias is not None:
             xz = xz + rearrange(self.in_proj.bias.to(dtype=xz.dtype), "d -> d 1")
-
-        A = -torch.exp(self.A_log.float())  # (d_inner, d_state)
         # In the backward pass we write dx and dz next to each other to avoid torch.cat
-        if self.use_fast_path and inference_params is None:  # Doesn't support outputting the states
-            if self.bimamba_type == "v1":
-                A_b = -torch.exp(self.A_b_log.float())
-                out = bimamba_inner_fn(
-                    xz,
-                    self.conv1d.weight,
-                    self.conv1d.bias,
-                    self.x_proj.weight,
-                    self.dt_proj.weight,
-                    self.out_proj.weight,
-                    self.out_proj.bias,
-                    A,
-                    A_b,
-                    None,  # input-dependent B
-                    None,  # input-dependent C
-                    self.D.float(),
-                    delta_bias=self.dt_proj.bias.float(),
-                    delta_softplus=True,
-                )    
-            elif self.bimamba_type == "v2":
-                A_b = -torch.exp(self.A_b_log.float())
-                # x, z = xz.chunk(2, dim=1)
-                out = mamba_inner_fn_no_out_proj(
-                    xz,
-                    self.conv1d.weight,
-                    self.conv1d.bias,
-                    self.x_proj.weight,
-                    self.dt_proj.weight,
-                    A,
-                    None,  # input-dependent B
-                    None,  # input-dependent C
-                    self.D.float(),
-                    delta_bias=self.dt_proj.bias.float(),
-                    delta_softplus=True,
-                )
-                # flip x
-                out_b = mamba_inner_fn_no_out_proj(
-                    xz.flip([-1]),
-                    self.conv1d_b.weight,
-                    self.conv1d_b.bias,
-                    self.x_proj_b.weight,
-                    self.dt_proj_b.weight,
-                    A_b,
-                    None,
-                    None,
-                    self.D_b.float(),
-                    delta_bias=self.dt_proj_b.bias.float(),
-                    delta_softplus=True,
-                )
-                # F.linear(rearrange(out_z, "b d l -> b l d"), out_proj_weight, out_proj_bias)
-                if not self.if_devide_out:
-                    out = F.linear(rearrange(out + out_b.flip([-1]), "b d l -> b l d"), self.out_proj.weight, self.out_proj.bias)
-                else:
-                    out = F.linear(rearrange(out + out_b.flip([-1]), "b d l -> b l d") / 2, self.out_proj.weight, self.out_proj.bias)
-
-            else:
-                out = mamba_inner_fn(
-                    xz,
-                    self.conv1d.weight,
-                    self.conv1d.bias,
-                    self.x_proj.weight,
-                    self.dt_proj.weight,
-                    self.out_proj.weight,
-                    self.out_proj.bias,
-                    A,
-                    None,  # input-dependent B
-                    None,  # input-dependent C
-                    self.D.float(),
-                    delta_bias=self.dt_proj.bias.float(),
-                    delta_softplus=True,
-                )
-        else:
-            x, z = xz.chunk(2, dim=1)
-            # Compute short convolution
-            if conv_state is not None:
-                # If we just take x[:, :, -self.d_conv :], it will error if seqlen < self.d_conv
-                # Instead F.pad will pad with zeros if seqlen < self.d_conv, and truncate otherwise.
-                conv_state.copy_(F.pad(x, (self.d_conv - x.shape[-1], 0)))  # Update state (B D W)
-            if causal_conv1d_fn is None:
-                x = self.act(self.conv1d(x)[..., :seqlen])
-            else:
-                assert self.activation in ["silu", "swish"]
-                x = causal_conv1d_fn(
-                    x=x,
-                    weight=rearrange(self.conv1d.weight, "d 1 w -> d w"),
-                    bias=self.conv1d.bias,
-                    activation=self.activation,
-                )
-
-            # We're careful here about the layout, to avoid extra transposes.
-            # We want dt to have d as the slowest moving dimension
-            # and L as the fastest moving dimension, since those are what the ssm_scan kernel expects.
-            x_dbl = self.x_proj(rearrange(x, "b d l -> (b l) d"))  # (bl d)
-            dt, B, C = torch.split(x_dbl, [self.dt_rank, self.d_state, self.d_state], dim=-1)
-            dt = self.dt_proj.weight @ dt.t()
-            dt = rearrange(dt, "d (b l) -> b d l", l=seqlen)
-            B = rearrange(B, "(b l) dstate -> b dstate l", l=seqlen).contiguous()
-            C = rearrange(C, "(b l) dstate -> b dstate l", l=seqlen).contiguous()
-            assert self.activation in ["silu", "swish"]
-            y = selective_scan_fn(
-                x,
-                dt,
-                A,
-                B,
-                C,
-                self.D.float(),
-                z=z,
-                delta_bias=self.dt_proj.bias.float(),
-                delta_softplus=True,
-                return_last_state=ssm_state is not None,
-            )
-            if ssm_state is not None:
-                y, last_state = y
-                ssm_state.copy_(last_state)
-            y = rearrange(y, "b d l -> b l d")
+        # if (self.d_conv <= 1) or (not self.conv):
+        # Bi-directional Mamba (Manual)
+        # Single-directional Mamba (Manual)
+        x, z = xz.chunk(2, dim=1)
+        z = None if not self.attention else z
+        if self.bi:
+            # x [b d l]
+            # y [b l d]
+            y_fwd = self.conv_ssm(x, z, "fwd")
+            y_bwd = self.conv_ssm(x.flip([-1]), z.flip([-1]) if self.attention else None, "bwd")
+            # concat to b l 2d
+            y = torch.cat((y_fwd, y_bwd.flip([-1])), dim=2)
+            # y --> out [b l d]
             out = self.out_proj(y)
-        if self.init_layer_scale is not None:
-                out = out * self.gamma    
+        else:
+            y = self.conv_ssm(x, z, "fwd")
+            out = self.out_proj(y)
+        # else:
+        #     # bi-directional Mamba (Fast path)
+        #     if self.bi:
+        #         # x, z = xz.chunk(2, dim=1)
+        #         out_list = list()
+        #         for typ in ["fwd", "bwd"]:
+        #             xz_input = xz if typ == "fwd" else xz.flip([-1])
+        #             A = -torch.exp(self.param[f"A_log_{typ}"].float())  # (d_inner, d_state)
+                    
+        #             mamba_out = mamba_inner_fn_no_out_proj(
+        #                 xz_input,
+        #                 self.param[f"conv1d_{typ}"].weight,
+        #                 self.param[f"conv1d_{typ}"].bias,
+        #                 self.param[f"x_proj_{typ}"].weight,
+        #                 self.param[f"dt_proj_{typ}"].weight,
+        #                 A,
+        #                 None,  # input-dependent B
+        #                 None,  # input-dependent C
+        #                 self.param[f"D_{typ}"].float(),
+        #                 delta_bias=self.param[f"dt_proj_{typ}"].bias.float(),
+        #                 delta_softplus=True,
+        #                 )
+        #             out_list.append(mamba_out)
+
+        #         out, out_b = out_list   
+        #         # F.linear(rearrange(out_z, "b d l -> b l d"), out_proj_weight, out_proj_bias)
+        #         if not self.if_devide_out:
+        #             out = F.linear(rearrange(out + out_b.flip([-1]), "b d l -> b l d"), self.out_proj.weight, self.out_proj.bias)
+        #         else:
+        #             out = F.linear(rearrange(out + out_b.flip([-1]), "b d l -> b l d") / 2, self.out_proj.weight, self.out_proj.bias)
+        #     # single-directional Mamba (Fast path)
+        #     else:
+        #         A = -torch.exp(self.param["A_log_fwd"].float())
+        #         out = mamba_inner_fn(
+        #             xz,
+        #             self.param["conv1d_fwd"].weight,
+        #             self.param["conv1d_fwd"].bias,
+        #             self.param["x_proj_fwd"].weight,
+        #             self.param["dt_proj_fwd"].weight,
+        #             self.out_proj.weight,
+        #             self.out_proj.bias,
+        #             A,
+        #             None,  # input-dependent B
+        #             None,  # input-dependent C
+        #             self.param["D_fwd"].float(),
+        #             delta_bias=self.param["dt_proj_fwd"].bias.float(),
+        #             delta_softplus=True,
+        #         )
         return out
-
-    def step(self, hidden_states, conv_state, ssm_state):
-        dtype = hidden_states.dtype
-        assert hidden_states.shape[1] == 1, "Only support decoding with 1 token at a time for now"
-        xz = self.in_proj(hidden_states.squeeze(1))  # (B 2D)
-        x, z = xz.chunk(2, dim=-1)  # (B D)
-
-        # Conv step
-        if causal_conv1d_update is None:
-            conv_state.copy_(torch.roll(conv_state, shifts=-1, dims=-1))  # Update state (B D W)
-            conv_state[:, :, -1] = x
-            x = torch.sum(conv_state * rearrange(self.conv1d.weight, "d 1 w -> d w"), dim=-1)  # (B D)
-            if self.conv1d.bias is not None:
-                x = x + self.conv1d.bias
-            x = self.act(x).to(dtype=dtype)
-        else:
-            x = causal_conv1d_update(
-                x,
-                conv_state,
-                rearrange(self.conv1d.weight, "d 1 w -> d w"),
-                self.conv1d.bias,
-                self.activation,
-            )
-
-        x_db = self.x_proj(x)  # (B dt_rank+2*d_state)
-        dt, B, C = torch.split(x_db, [self.dt_rank, self.d_state, self.d_state], dim=-1)
-        # Don't add dt_bias here
-        dt = F.linear(dt, self.dt_proj.weight)  # (B d_inner)
-        A = -torch.exp(self.A_log.float())  # (d_inner, d_state)
-
-        # SSM step
-        if selective_state_update is None:
-            # Discretize A and B
-            dt = F.softplus(dt + self.dt_proj.bias.to(dtype=dt.dtype))
-            dA = torch.exp(torch.einsum("bd,dn->bdn", dt, A))
-            dB = torch.einsum("bd,bn->bdn", dt, B)
-            ssm_state.copy_(ssm_state * dA + rearrange(x, "b d -> b d 1") * dB)
-            y = torch.einsum("bdn,bn->bd", ssm_state.to(dtype), C)
-            y = y + self.D.to(dtype) * x
-            y = y * self.act(z)  # (B D)
-        else:
-            y = selective_state_update(
-                ssm_state, x, dt, A, B, C, self.D, z=z, dt_bias=self.dt_proj.bias, dt_softplus=True
-            )
-
-        out = self.out_proj(y)
-        return out.unsqueeze(1), conv_state, ssm_state
 
     def allocate_inference_cache(self, batch_size, max_seqlen, dtype=None, **kwargs):
         device = self.out_proj.weight.device
@@ -430,7 +330,7 @@ class Block(nn.Module):
             ), "Only LayerNorm and RMSNorm are supported for fused_add_norm"
 
     def forward(
-        self, hidden_states: Tensor, residual: Optional[Tensor] = None, inference_params=None
+        self, hidden_states: Tensor, residual: Optional[Tensor] = None
     ):
         r"""Pass the input through the encoder layer.
 
@@ -454,7 +354,7 @@ class Block(nn.Module):
                 residual_in_fp32=self.residual_in_fp32,
                 eps=self.norm.eps,
             )
-        hidden_states = self.mixer(hidden_states, inference_params=inference_params)
+        hidden_states = self.mixer(hidden_states)
         return hidden_states, residual
 
     def allocate_inference_cache(self, batch_size, max_seqlen, dtype=None, **kwargs):

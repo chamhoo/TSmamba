@@ -48,36 +48,37 @@ def _init_weights(
                     p /= math.sqrt(n_residuals_per_layer * n_layer)
 
 
-
+# temp_config = {
+#     "bi": False,
+#     "attention": True,
+#     "conv": True,
+#     "kernel": 1,
+#     "conv_group": 1 
+# }
 class MultiLayerMamba(nn.Module):
     def __init__(
         self,
         d_model: int,
         n_layer: int = 2,
         rms_norm: bool = False,
-        bi: bool = False,
+        mblock_config = None
     ):
         # init
         super().__init__()
 
         def create_block():
             norm_cls = partial(nn.LayerNorm if not rms_norm else RMSNorm, eps=1e-5)
-            if bi:
-                MambaV2 = partial(Mamba, bimamba_type="v2")
-                block = Block(d_model, MambaV2, norm_cls=norm_cls)
-            else:
-                block = Block(d_model, Mamba, norm_cls=norm_cls)
+            MambaV2 = partial(Mamba, **mblock_config)
+            block = Block(d_model, MambaV2, norm_cls=norm_cls)
             return block
 
         self.layers = nn.ModuleList([create_block() for _ in range(n_layer)])
         self.norm_f = (nn.LayerNorm if not rms_norm else RMSNorm)(d_model, eps=1e-5)
         self.apply(partial(_init_weights, n_layer=n_layer))
 
-    def forward(self, x, inference_params=None):
+    def forward(self, x):
         # x: [batch, length, dim]
         residual = None
         for layer in self.layers:
-            x, residual = layer(
-                x, residual, inference_params=inference_params
-            )
+            x, residual = layer(x, residual)
         return x
