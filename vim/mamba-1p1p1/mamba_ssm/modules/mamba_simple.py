@@ -55,8 +55,6 @@ class Mamba(nn.Module):
         layer_idx=None,
         device=None,
         dtype=None,
-        if_devide_out=False,
-        init_layer_scale=None,
         bi = False,
         attention = True,
         conv = True,
@@ -72,11 +70,9 @@ class Mamba(nn.Module):
         self.dt_rank = math.ceil(self.d_model / 16) if dt_rank == "auto" else dt_rank
         self.layer_idx = layer_idx
         self.bi = bi
-        self.if_devide_out = if_devide_out
         self.attention = attention
         self.conv = conv
         self.conv_group = conv_group
-        self.init_layer_scale = init_layer_scale
         self.in_proj = nn.Linear(self.d_model, self.d_inner * 2, bias=bias, **factory_kwargs)
         
         self.act = nn.SiLU()
@@ -144,11 +140,13 @@ class Mamba(nn.Module):
             # Mark dt_proj.bias as no reinit
             dt_proj.bias._no_reinit = True
 
-    def conv_ssm(self, x, z, typ):
+    def conv_ssm(self, xz, typ):
+        x, z = xz.chunk(2, dim=1)
+        z = None if not self.attention else z
         seqlen = x.shape[-1]
         # Compute convolution when kernel size <= 1
         if self.conv:
-                x = self.act(getattr(self, f"conv1d_{typ}")(x))
+                x = self.act(getattr(self, f"conv1d_{typ}")(x)[..., :seqlen])
             # We're careful here about the layout, to avoid extra transposes.
             # We want dt to have d as the slowest moving dimension
             # and L as the fastest moving dimension, since those are what the ssm_scan kernel expects.
@@ -195,68 +193,18 @@ class Mamba(nn.Module):
         # if (self.d_conv <= 1) or (not self.conv):
         # Bi-directional Mamba (Manual)
         # Single-directional Mamba (Manual)
-        x, z = xz.chunk(2, dim=1)
-        z = None if not self.attention else z
         if self.bi:
             # x [b d l]
             # y [b l d]
-            y_fwd = self.conv_ssm(x, z, "fwd")
-            y_bwd = self.conv_ssm(x.flip([-1]), z.flip([-1]) if self.attention else None, "bwd")
+            y_fwd = self.conv_ssm(xz, "fwd")
+            y_bwd = self.conv_ssm(xz.flip([-1]), "bwd")
             # concat to b l 2d
-            y = torch.cat((y_fwd, y_bwd.flip([-1])), dim=2)
+            y = torch.cat((y_fwd, y_bwd.flip([1])), dim=2)
             # y --> out [b l d]
             out = self.out_proj(y)
         else:
-            y = self.conv_ssm(x, z, "fwd")
+            y = self.conv_ssm(xz, "fwd")
             out = self.out_proj(y)
-        # else:
-        #     # bi-directional Mamba (Fast path)
-        #     if self.bi:
-        #         # x, z = xz.chunk(2, dim=1)
-        #         out_list = list()
-        #         for typ in ["fwd", "bwd"]:
-        #             xz_input = xz if typ == "fwd" else xz.flip([-1])
-        #             A = -torch.exp(self.param[f"A_log_{typ}"].float())  # (d_inner, d_state)
-                    
-        #             mamba_out = mamba_inner_fn_no_out_proj(
-        #                 xz_input,
-        #                 self.param[f"conv1d_{typ}"].weight,
-        #                 self.param[f"conv1d_{typ}"].bias,
-        #                 self.param[f"x_proj_{typ}"].weight,
-        #                 self.param[f"dt_proj_{typ}"].weight,
-        #                 A,
-        #                 None,  # input-dependent B
-        #                 None,  # input-dependent C
-        #                 self.param[f"D_{typ}"].float(),
-        #                 delta_bias=self.param[f"dt_proj_{typ}"].bias.float(),
-        #                 delta_softplus=True,
-        #                 )
-        #             out_list.append(mamba_out)
-
-        #         out, out_b = out_list   
-        #         # F.linear(rearrange(out_z, "b d l -> b l d"), out_proj_weight, out_proj_bias)
-        #         if not self.if_devide_out:
-        #             out = F.linear(rearrange(out + out_b.flip([-1]), "b d l -> b l d"), self.out_proj.weight, self.out_proj.bias)
-        #         else:
-        #             out = F.linear(rearrange(out + out_b.flip([-1]), "b d l -> b l d") / 2, self.out_proj.weight, self.out_proj.bias)
-        #     # single-directional Mamba (Fast path)
-        #     else:
-        #         A = -torch.exp(self.param["A_log_fwd"].float())
-        #         out = mamba_inner_fn(
-        #             xz,
-        #             self.param["conv1d_fwd"].weight,
-        #             self.param["conv1d_fwd"].bias,
-        #             self.param["x_proj_fwd"].weight,
-        #             self.param["dt_proj_fwd"].weight,
-        #             self.out_proj.weight,
-        #             self.out_proj.bias,
-        #             A,
-        #             None,  # input-dependent B
-        #             None,  # input-dependent C
-        #             self.param["D_fwd"].float(),
-        #             delta_bias=self.param["dt_proj_fwd"].bias.float(),
-        #             delta_softplus=True,
-        #         )
         return out
 
     def allocate_inference_cache(self, batch_size, max_seqlen, dtype=None, **kwargs):
