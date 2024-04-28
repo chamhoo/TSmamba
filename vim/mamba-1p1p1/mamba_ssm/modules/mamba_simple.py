@@ -76,7 +76,8 @@ class Mamba(nn.Module):
         self.in_proj = nn.Linear(self.d_model, self.d_inner * 2, bias=bias, **factory_kwargs)
         
         self.act = nn.SiLU()
-        out_in_channels = self.d_inner*2 if bi else self.d_inner
+        # out_in_channels = self.d_inner*2 if bi else self.d_inner
+        out_in_channels = self.d_inner
         self.out_proj = nn.Linear(out_in_channels, self.d_model, bias=bias, **factory_kwargs)
         # forward and backward
         type_lst = ["fwd"] if not self.bi else ["fwd", "bwd"]
@@ -199,7 +200,8 @@ class Mamba(nn.Module):
             y_fwd = self.conv_ssm(xz, "fwd")
             y_bwd = self.conv_ssm(xz.flip([-1]), "bwd")
             # concat to b l 2d
-            y = torch.cat((y_fwd, y_bwd.flip([1])), dim=2)
+            y = y_fwd + y_bwd.flip([1])
+            # y = torch.cat((y_fwd, y_bwd.flip([1])), dim=2)
             # y --> out [b l d]
             out = self.out_proj(y)
         else:

@@ -108,10 +108,10 @@ if __name__ == '__main__':
     #     - ratio: The number of mambas used by the spatial layer is multiple times more than that used by the temporal layer
     #     - embedding
     temp_config = {
-        "bi": False,
+        "bi": True,
         "attention": True,
-        "conv": False,
-        "d_conv": 1,
+        "conv": True,
+        "d_conv": 4,
         "conv_group": 1 
     }
     
