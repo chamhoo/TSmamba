@@ -222,7 +222,7 @@ class processor(object):
         self.dataloader.reset_batch_pointer(set='train', valid=False)
         loss_epoch = 0
         # 初始化进度条
-        pbar = tqdm(total=self.dataloader.trainbatchnums, leave=False)
+        pbar = tqdm(total=self.dataloader.trainbatchnums, leave=False, ncols=80)
 
         for batch in range(self.dataloader.trainbatchnums):
             # self.optimizer.zero_grad()

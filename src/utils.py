@@ -205,8 +205,8 @@ class Trajectory_Dataloader():
         data_index = data_index[:, all_frame_id_list]
 
         # to make full use of the data
-        if setname == 'train':
-            data_index = np.append(data_index, data_index[:, :self.args.batch_size], 1)
+        # if setname == 'train':
+        #     data_index = np.append(data_index, data_index[:, :self.args.batch_size], 1)
         return data_index
 
     def load_dict(self, data_file):
@@ -522,7 +522,7 @@ class Trajectory_Dataloader():
         s = batch[self.args.obs_length - 1]
 
         shift_value = np.repeat(s.reshape((1, -1, 2)), self.args.seq_length, 0)
-
+        # nodes_abs, nodes_norm, shift_value, seq_list, scenes, batch_pednum
         batch_data = batch, batch - shift_value, shift_value, seq_list, scenes, batch_pednum
         return batch_data
 
