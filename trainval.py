@@ -21,7 +21,7 @@ random.seed(0)
 def get_parser():
     parser = argparse.ArgumentParser(
         description='STAR')
-    parser.add_argument('--phase', default='train', help='Set this value to \'train\' or \'test\'')
+    parser.add_argument('--phase', default='train', help='Set this value to \'train\' or \'test\' or time')
     parser.add_argument('--sendwx', default=True, help='send a message to WX')
     # &&&&&&&&&&&&&& LEVEL 1 Arguments: frequent Changes &&&&&&&&&&&&&&
     # path -----------------------------------------------------
@@ -107,33 +107,28 @@ if __name__ == '__main__':
     #     - n_layers: # of layers in the temporal encoder
     #     - ratio: The number of mambas used by the spatial layer is multiple times more than that used by the temporal layer
     #     - embedding
-    temp_config = {
-        "bi": True,
-        "attention": True,
-        "conv": True,
-        "d_conv": 4,
-        "conv_group": 1 
-    }
-    
-    spa_config = {
-        "bi": True,
-        "attention": False,
-        "conv": False,
-        "d_conv": 1,
-        "conv_group": 1 
-    }
+    tmp_config = {"bi": True}
+
+
+    spa_config = {"bi": True}
+
+    config = {
+        "tmp_config": tmp_config, 
+        "spa_config": spa_config
+        }
+
 
     model_Hparameters = {
-        "n_layers": 4,
-        "ratio": 1,
-        "embedding": 32,
-        "dropout": 0,
-        "tmp": temp_config,
-        "spa": spa_config,
-    }
+        "emb": 32, 
+        "n_layers": 6, 
+        "config": config, 
+        "previous_use_GM": True
+        }
     trainer = processor(args, model_parameters=model_Hparameters)
 
     if args.phase == 'test':
         trainer.test()
-    else:
+    elif args.phase == 'train':
         trainer.train()
+    else:
+        trainer.time()

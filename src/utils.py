@@ -522,7 +522,7 @@ class Trajectory_Dataloader():
         s = batch[self.args.obs_length - 1]
 
         shift_value = np.repeat(s.reshape((1, -1, 2)), self.args.seq_length, 0)
-        # nodes_abs, nodes_norm, shift_value, seq_list, scenes, batch_pednum
+        # nodes_abs(spa), nodes_norm(temp), shift_value, seq_list, scenes, batch_pednum
         batch_data = batch, batch - shift_value, shift_value, seq_list, scenes, batch_pednum
         return batch_data
 

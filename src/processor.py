@@ -1,9 +1,11 @@
 import torch
 import torch.nn as nn
+import torch.profiler
 from torch.optim.lr_scheduler import OneCycleLR, ReduceLROnPlateau, CosineAnnealingLR
 
-from .star import STAR
+
 from .utils import *
+from .structure import PFA
 
 import requests
 import json
@@ -36,7 +38,7 @@ class processor(object):
         self.args = args
         self.model_parameters = model_parameters
         self.dataloader = Trajectory_Dataloader(args)
-        self.net = STAR(args, model_parameters)
+        self.net = PFA(args, model_parameters)
         # eval parameters
         total_params = sum(p.numel() for p in self.net.parameters() if p.requires_grad)
         print(f"Total number of parameters: {total_params}")
@@ -303,3 +305,40 @@ class processor(object):
             final_error_cnt_epoch += final_error_cnt
 
         return error_epoch / error_cnt_epoch, final_error_epoch / final_error_cnt_epoch
+    
+
+    def time(self):
+        print('Timing begin')
+        self.load_model()
+        self.net.eval()
+        self.time_epoch()
+        print("&&&&&&& Hyper Parameters &&&&&&&&&&&&")
+        for key, value in self.model_parameters.items():
+            print(f"{key}: {value}")
+        print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
+
+
+    @torch.no_grad()
+    def time_epoch(self):
+        self.dataloader.reset_batch_pointer(set='test')
+        inputs_ori, batch_id = self.dataloader.get_test_batch(0)
+        inputs = []
+        for idx, contents in enumerate(inputs_ori):
+            if idx != len(inputs_ori) - 2:
+                contents = torch.Tensor(contents)
+                if self.args.using_cuda:
+                    contents = contents.cuda()
+            inputs.append(contents)
+
+        batch_abs, batch_norm, shift_value, seq_list, scenes, batch_pednum = inputs
+
+        inputs_forward = batch_abs[:-1], batch_norm[:-1], shift_value[:-1], seq_list[:-1], scenes, batch_pednum
+            # 启动 profiler
+        with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA], profile_memory=True) as profiler:
+            self.net.forward(inputs_forward, iftest=True)
+            profiler.step()  # 更新 profiler
+        
+        print(profiler.key_averages().table(row_limit=10))
+
+
+

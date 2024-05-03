@@ -9,15 +9,15 @@ from .mamba import MultiLayerMamba
 # torch.autograd.set_detect_anomaly(True)
 
 
-def gather_features(spatial_input_embedded, component_sizes, num_emb):
-    max_peds = max(component_sizes)
+def gather_features(spatial_input_embedded, updated_batch_pednum, num_emb):
+    max_peds = int(max(updated_batch_pednum).item())
     # 初始化结果张量
-    N_of_scenes = len(component_sizes)
+    N_of_scenes = len(updated_batch_pednum)
     gathered_embeddings = torch.zeros(N_of_scenes, max_peds, num_emb, device=spatial_input_embedded.device)
     
     # 填充结果张量
     start_idx = 0
-    for i, size in enumerate(component_sizes):
+    for i, size in enumerate(updated_batch_pednum):
         end_idx = start_idx + size
         gathered_embeddings[i, :size, :] = spatial_input_embedded[start_idx:end_idx]
         start_idx = end_idx
@@ -38,19 +38,19 @@ def get_subsequent_mask(seq):
         torch.ones((1, len_s, len_s), device=seq.device), diagonal=1)).bool()
     return subsequent_mask
 
-def slice_and_concat(emb_features, component_sizes):
+def slice_and_concat(emb_features, updated_batch_pednum):
     """
-    高效地根据component_sizes对emb_features进行切片并拼接。
+    高效地根据updated_batch_pednum对emb_features进行切片并拼接。
     
     参数:
     - emb_features: 形状为[scenes, MAX N of peds in individual scene, Embedded Feature]的Tensor。
-    - component_sizes: 每个scene中有效pedestrians的数量列表。
+    - updated_batch_pednum: 每个scene中有效pedestrians的数量列表。
     
     返回:
-    - output_tensor: 形状为[sum(component_sizes), Embedded Feature]的新Tensor。
+    - output_tensor: 形状为[sum(updated_batch_pednum), Embedded Feature]的新Tensor。
     """
     # 通过列表解析和torch.cat直接进行切片和拼接
-    output_tensor = torch.cat([emb_features[i, :size, :] for i, size in enumerate(component_sizes)], dim=0)
+    output_tensor = torch.cat([emb_features[i, :size, :] for i, size in enumerate(updated_batch_pednum)], dim=0)
     return output_tensor
 
 class STAR(torch.nn.Module):
@@ -123,48 +123,86 @@ class STAR(torch.nn.Module):
 
         return st_ed
 
-    def get_node_index(self, seq_list):
+    # def get_node_index(self, seq_list):
+    #     """
+
+    #     :param seq_list: mask indicates whether pedestrain exists
+    #     :type seq_list: numpy array [F, N], F: number of frames. N: Number of pedestrians (a mask to indicate whether
+    #                                                                                         the pedestrian exists)
+    #     :return: All the pedestrians who exist from the beginning to current frame
+    #     :rtype: numpy array
+    #     """
+    #     for idx, framenum in enumerate(seq_list):
+
+    #         if idx == 0:
+    #             node_indices = framenum > 0
+    #         else:
+    #             node_indices *= (framenum > 0)
+
+    #     return node_indices
+    
+    @staticmethod
+    def get_node_index(seq_list):
         """
+        Determine the indices of pedestrians who exist in all frames from the beginning up to each current frame using PyTorch.
 
-        :param seq_list: mask indicates whether pedestrain exists
-        :type seq_list: numpy array [F, N], F: number of frames. N: Number of pedestrians (a mask to indicate whether
-                                                                                            the pedestrian exists)
-        :return: All the pedestrians who exist from the beginning to current frame
-        :rtype: numpy array
+        :param seq_list: A 2D PyTorch tensor where each element indicates the presence (values > 0) or absence (values == 0)
+                        of a pedestrian in a frame. Shape: [F, N], where F is the number of frames and N is the number of pedestrians.
+        :return: A boolean tensor indicating pedestrians who exist in every frame up to the current one.
+        :rtype: torch.BoolTensor
         """
-        for idx, framenum in enumerate(seq_list):
-
-            if idx == 0:
-                node_indices = framenum > 0
-            else:
-                node_indices *= (framenum > 0)
-
-        return node_indices
-
-    def update_batch_pednum(self, batch_pednum, ped_list):
+        # Convert the presence indicators to boolean (True if value > 0)
+        presence = seq_list > 0
+        # Compute a logical AND across the first dimension (frames)
+        return torch.all(presence, dim=0)
+    
+    @staticmethod
+    def update_batch_pednum(batch_pednum, ped_list):
         """
-
-        :param batch_pednum: batch_num: contains number of pedestrians in different scenes for a batch
+        更新每个场景中的行人数量。
+        :param batch_pednum: 含有不同场景行人数量的列表
         :type list
-        :param ped_list: mask indicates whether the pedestrian exists through the time window to current frame
+        :param ped_list: 表示时间窗口内行人存在情况的张量
         :type tensor
-        :return: batch_pednum: contains number of pedestrians in different scenes for a batch after removing pedestrian who disappeared
+        :return: 更新后的行人数量列表
         :rtype: list
         """
-        updated_batch_pednum_ = copy.deepcopy(batch_pednum).cpu().numpy()
-        updated_batch_pednum = copy.deepcopy(batch_pednum)
-
-        cumsum = np.cumsum(updated_batch_pednum_)
-        new_ped = copy.deepcopy(ped_list).cpu().numpy()
-
+        updated_batch_pednum = batch_pednum.clone()
+        cumsum = torch.cumsum(batch_pednum, dim=0, dtype=int)
+        start_idx = 0
+        
         for idx, num in enumerate(cumsum):
-            num = int(num)
             if idx == 0:
-                updated_batch_pednum[idx] = len(np.where(new_ped[0:num] == 1)[0])
+                updated_batch_pednum[idx] = torch.sum(ped_list[:num])
             else:
-                updated_batch_pednum[idx] = len(np.where(new_ped[int(cumsum[idx - 1]):num] == 1)[0])
+                updated_batch_pednum[idx] = torch.sum(ped_list[start_idx:num])
+            start_idx = num  # 更新start_idx为当前cumsum位置
+        return updated_batch_pednum.int()
 
-        return updated_batch_pednum
+    # def update_batch_pednum(self, batch_pednum, ped_list):
+    #     """
+
+    #     :param batch_pednum: batch_num: contains number of pedestrians in different scenes for a batch
+    #     :type list
+    #     :param ped_list: mask indicates whether the pedestrian exists through the time window to current frame
+    #     :type tensor
+    #     :return: batch_pednum: contains number of pedestrians in different scenes for a batch after removing pedestrian who disappeared
+    #     :rtype: list
+    #     """
+    #     updated_batch_pednum_ = copy.deepcopy(batch_pednum).cpu().numpy()
+    #     updated_batch_pednum = copy.deepcopy(batch_pednum)
+
+    #     cumsum = np.cumsum(updated_batch_pednum_)
+    #     new_ped = copy.deepcopy(ped_list).cpu().numpy()
+
+    #     for idx, num in enumerate(cumsum):
+    #         num = int(num)
+    #         if idx == 0:
+    #             updated_batch_pednum[idx] = len(np.where(new_ped[0:num] == 1)[0])
+    #         else:
+    #             updated_batch_pednum[idx] = len(np.where(new_ped[int(cumsum[idx - 1]):num] == 1)[0])
+
+    #     return updated_batch_pednum
 
     def mean_normalize_abs_input(self, node_abs, st_ed):
         """
@@ -222,15 +260,15 @@ class STAR(torch.nn.Module):
 
             else:
                 node_index = self.get_node_index(seq_list[:framenum + 1])
-                # netlist
+                # component_sizes: The number of peds in each batch
                 # --------------------------------------
-                component_sizes = []
-                # 遍历每个场景
-                for start, end in scenes:
-                    # 获取当前场景中所有行人的在场情况
-                    current_scene_presence = node_index[start:end+1]
-                    # 计算并存储当前场景中在场行人的数量
-                    component_sizes.append(current_scene_presence.sum().item())
+                # component_sizes = []
+                # # 遍历每个场景
+                # for start, end in scenes:
+                #     # 获取当前场景中所有行人的在场情况
+                #     current_scene_presence = node_index[start:end+1]
+                #     # 计算并存储当前场景中在场行人的数量
+                #     component_sizes.append(current_scene_presence.sum().item())
                 # --------------------------------------
                 updated_batch_pednum = self.update_batch_pednum(batch_pednum, node_index)
                 st_ed = self.get_st_ed(updated_batch_pednum)
@@ -260,12 +298,12 @@ class STAR(torch.nn.Module):
             spatial_embedded1 = self.dropout_in2(spa_input_relu)[-1]
             # First Spatial -------------------------------------------------------
             # gathered_features [N of scenes, N of peds in individual scene, Embedded Feature]
-            gathered_features = gather_features(spatial_embedded1, component_sizes, self.emb)
+            gathered_features = gather_features(spatial_embedded1, updated_batch_pednum, self.emb)
             # output of spatial_encoder [N of scenes, N of peds in individual scene, Emb]
             spatial1 = self.spatial_encoder_1(gathered_features)
             # slice
             # spatial_input_embedded [N of Ped, Embedded Feature]
-            spatial_input_embedded = slice_and_concat(spatial1, component_sizes)
+            spatial_input_embedded = slice_and_concat(spatial1, updated_batch_pednum)
             # First Temporal -------------------------------------------------------
             # input of temporal_encoder_1 [N of Ped, T, 32-Embedded coorinate]
             # output of temporal_encoder_1 [N of Ped, Embedded Feature]
@@ -279,10 +317,10 @@ class STAR(torch.nn.Module):
             # Second Spatial -------------------------------------------------
             # fusion_feat [N of Ped, Embedded Feature]
             # gathered_fusion [N of scenes, MAX peds in this scene, Embedded Feature]
-            gathered_fusion = gather_features(fusion_feat, component_sizes, self.emb)
+            gathered_fusion = gather_features(fusion_feat, updated_batch_pednum, self.emb)
             spatial2 = self.spatial_encoder_2(gathered_fusion)
             # spatial_input_embedded [N of Ped, Embedded Feature]
-            spatial_embedded2 = slice_and_concat(spatial2, component_sizes)
+            spatial_embedded2 = slice_and_concat(spatial2, updated_batch_pednum)
             spatial_embedded2 = torch.unsqueeze(spatial_embedded2, 0)
             # Second Temporal -------------------------------------------------
             # input of temporal_encoder_2 [(T-1) from GM + 1 from spatial = T, N of Ped, Embedded Features]
@@ -295,12 +333,14 @@ class STAR(torch.nn.Module):
             outputs_current = self.output_layer(temporal_input_embedded_wnoise)
             
             # Update the outputs and GM with the current frame's output
-            outputs_clone = outputs.clone()
-            outputs_clone[framenum, node_index] = outputs_current
-            outputs = outputs_clone
-            # GM[framenum, node_index] = temporal_input_embedded
-            GM_clone = GM.clone()
-            # 然后对GM_clone进行操作
-            GM_clone[framenum, node_index] = temporal_input_embedded
-            GM = GM_clone
+            outputs[framenum, node_index] = outputs_current
+            # outputs_clone = outputs.clone()
+            # outputs_clone[framenum, node_index] = outputs_current
+            # outputs = outputs_clone
+
+            GM[framenum, node_index] = temporal_input_embedded
+            # GM_clone = GM.clone()
+            # # 然后对GM_clone进行操作
+            # GM_clone[framenum, node_index] = temporal_input_embedded
+            # GM = GM_clone
         return outputs

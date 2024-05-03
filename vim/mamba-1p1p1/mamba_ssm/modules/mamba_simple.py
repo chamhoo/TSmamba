@@ -55,7 +55,7 @@ class Mamba(nn.Module):
         layer_idx=None,
         device=None,
         dtype=None,
-        bi = False,
+        bi = True,
         attention = True,
         conv = True,
         conv_group = None
