@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.profiler
 from torch.optim.lr_scheduler import OneCycleLR, ReduceLROnPlateau, CosineAnnealingLR
 
-
+import csv
 from .utils import *
 from .structure import PFA
 
@@ -318,8 +318,30 @@ class processor(object):
         print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
 
 
+
+    @ staticmethod
+    def savetocsv(results, file_path):
+        with open(file_path, mode='w', newline='') as f:
+            csv_writer = csv.writer(f)
+            # 写入标题行
+            csv_writer.writerow(["Name", "CPU Time Total (ms)", "CUDA Time Total (ms)", "Calls", "Self CPU Time Total (ms)", "Self CUDA Time Total (ms)"])
+            # 写入每行数据
+            for result in results:
+                csv_writer.writerow([
+                    result.key,  # 操作名称
+                    result.cpu_time_total,  # CPU 总时间
+                    result.cuda_time_total if hasattr(result, 'cuda_time_total') else 'N/A',  # CUDA 总时间，如果有的话
+                    result.count,  # 调用次数
+                    result.self_cpu_time_total,  # 自身 CPU 时间
+                    result.self_cuda_time_total if hasattr(result, 'self_cuda_time_total') else 'N/A'  # 自身 CUDA 时间，如果有的话
+                ])
+        print(f"Profiler results saved to {file_path}")
+
+
+
     @torch.no_grad()
     def time_epoch(self):
+        # inputs
         self.dataloader.reset_batch_pointer(set='test')
         inputs_ori, batch_id = self.dataloader.get_test_batch(0)
         inputs = []
@@ -333,12 +355,25 @@ class processor(object):
         batch_abs, batch_norm, shift_value, seq_list, scenes, batch_pednum = inputs
 
         inputs_forward = batch_abs[:-1], batch_norm[:-1], shift_value[:-1], seq_list[:-1], scenes, batch_pednum
-            # 启动 profiler
-        with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA], profile_memory=True) as profiler:
-            self.net.forward(inputs_forward, iftest=True)
-            profiler.step()  # 更新 profiler
         
-        print(profiler.key_averages().table(row_limit=10))
+        # 启动 profiler
+        prof = torch.profiler.profile(
+            activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA], 
+            schedule=torch.profiler.schedule(wait=1, warmup=1, active=1),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler('runs/timetime'),
+            record_shapes=True,
+            with_stack=True)
+        
+        prof.start()
+        for i in range(10):
+            self.net.forward(inputs_forward, iftest=True)
+            prof.step()  # 更新 profiler
+        prof.stop()
+
+        self.savetocsv(prof.key_averages(), "profiler_results.csv")
+
+
+
 
 
 

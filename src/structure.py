@@ -58,16 +58,20 @@ class PFA(torch.nn.Module):
         :return: 更新后的行人数量列表
         :rtype: list
         """
-        updated_batch_pednum = pednum.clone()
-        cumsum = torch.cumsum(pednum, dim=0, dtype=int)
-        start_idx = 0
+        cumsum = torch.cumsum(pednum.int(), dim=0)
         
-        for idx, num in enumerate(cumsum):
-            if idx == 0:
-                updated_batch_pednum[idx] = torch.sum(ped_list[:num])
-            else:
-                updated_batch_pednum[idx] = torch.sum(ped_list[start_idx:num])
-            start_idx = num  # 更新start_idx为当前cumsum位置
+        # 生成每个场景结束索引的掩码
+        max_idx = cumsum[-1]
+        idx_range = torch.arange(max_idx, device=pednum.device).unsqueeze(0)
+        ends = cumsum.unsqueeze(1)
+        starts = torch.cat((torch.tensor([0], device=pednum.device), cumsum[:-1])).unsqueeze(1)
+
+        # 使用广播生成掩码
+        mask = (idx_range >= starts) & (idx_range < ends)
+
+        # 应用掩码并计算结果
+        selected_ped_list = mask * ped_list[:max_idx].unsqueeze(0)
+        updated_batch_pednum = selected_ped_list.sum(dim=1)
         return updated_batch_pednum.int()
 
 

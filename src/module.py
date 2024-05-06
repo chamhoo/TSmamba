@@ -11,19 +11,27 @@ from mamba_ssm.ops.triton.layernorm import RMSNorm, layer_norm_fn, rms_norm_fn
 
 
 def gather_features(spatial_input_embedded, updated_batch_pednum, num_emb):
-    max_peds = int(max(updated_batch_pednum).item())
-    # 初始化结果张量
-    N_of_scenes = len(updated_batch_pednum)
-    gathered_embeddings = torch.zeros(N_of_scenes, max_peds, num_emb, device=spatial_input_embedded.device)
+    N_of_scenes = updated_batch_pednum.shape[0]
+    max_peds = torch.max(updated_batch_pednum)
+
+    gathered_embeddings = torch.zeros(
+        N_of_scenes*max_peds, 
+        num_emb, 
+        device=spatial_input_embedded.device)
     
-    # 填充结果张量
-    start_idx = 0
-    for i, size in enumerate(updated_batch_pednum):
-        end_idx = start_idx + size
-        gathered_embeddings[i, :size, :] = spatial_input_embedded[start_idx:end_idx]
-        start_idx = end_idx
+    idx_tensor = torch.arange(
+        start=0, 
+        end=len(spatial_input_embedded), 
+        device=spatial_input_embedded.device)
     
-    return gathered_embeddings
+    residual_idx = torch.cat((torch.tensor([0], device=spatial_input_embedded.device), torch.cumsum(max_peds-updated_batch_pednum, dim=0)[:-1]))
+    scene_idx = torch.repeat_interleave(residual_idx, updated_batch_pednum)
+
+    idx = scene_idx + idx_tensor
+    
+    gathered_embeddings.scatter_(0, idx[:, None].expand(-1, num_emb), spatial_input_embedded)
+    
+    return gathered_embeddings.view(N_of_scenes, max_peds, num_emb)
 
 
 
@@ -39,8 +47,9 @@ def slice_and_concat(emb_features, updated_batch_pednum):
     - output_tensor: 形状为[sum(updated_batch_pednum), Embedded Feature]的新Tensor。
     """
     # 通过列表解析和torch.cat直接进行切片和拼接
-    output_tensor = torch.cat([emb_features[i, :size, :] for i, size in enumerate(updated_batch_pednum)], dim=0)
-    return output_tensor
+    indices = torch.arange(emb_features.size(1), device=emb_features.device).repeat(emb_features.size(0), 1)
+    mask = indices < updated_batch_pednum[:, None]
+    return emb_features[mask].view(-1, emb_features.size(2))
 
 
 
