@@ -24,7 +24,7 @@ class TSModel(nn.Module):
         self.input_2 = nn.Linear(128, emb)  # 第二个全连接层，输出到嵌入维度
         # 创建多个TSMambaBlock层
         self.blocks = nn.ModuleList([TSMambaBlock(emb, **config) for _ in range(n_layers)])
-        self.output = nn.Linear(int(emb+16), 2)
+        self.output = nn.Linear(emb, 2)
     
     def forward(self, inputs, gm, batch_pednum):
 
@@ -43,10 +43,10 @@ class TSModel(nn.Module):
             x = block(x, batch_pednum, previous)   # x, batch_pednum, previous_expression
         
         # add noise
-        noise = get_noise((1, 16), 'gaussian')
-        noise_to_cat = noise.repeat(x.shape[0], 1)
-        x_with_noise = torch.cat((x, noise_to_cat), dim=1)
+        # noise = get_noise((1, 16), 'gaussian')
+        # noise_to_cat = noise.repeat(x.shape[0], 1)
+        # x_with_noise = torch.cat((x, noise_to_cat), dim=1)
 
         # output
-        return self.output(x_with_noise), x
+        return self.output(x), x
     

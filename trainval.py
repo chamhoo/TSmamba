@@ -107,10 +107,10 @@ if __name__ == '__main__':
     #     - n_layers: # of layers in the temporal encoder
     #     - ratio: The number of mambas used by the spatial layer is multiple times more than that used by the temporal layer
     #     - embedding
-    tmp_config = {"bi": True}
+    tmp_config = {"bimamba_type": "v2"}
 
 
-    spa_config = {"bi": True}
+    spa_config = {"bimamba_type": "v2"}
 
     config = {
         "tmp_config": tmp_config, 

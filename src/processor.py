@@ -287,16 +287,18 @@ class processor(object):
 
             inputs_forward = batch_abs[:-1], batch_norm[:-1], shift_value[:-1], seq_list[:-1], scenes, batch_pednum
 
-            all_output = []
-            for i in range(self.args.sample_num):
-                outputs_infer = self.net.forward(inputs_forward, iftest=True)
-                all_output.append(outputs_infer)
+            # all_output = []
+            # for i in range(self.args.sample_num):
+            #     outputs_infer = self.net.forward(inputs_forward, iftest=True)
+            #     all_output.append(outputs_infer)
+            # self.net.zero_grad()
+            # all_output = torch.stack(all_output)
+
+            outputs_infer = self.net.forward(inputs_forward, iftest=True)
             self.net.zero_grad()
 
-            all_output = torch.stack(all_output)
-
-            lossmask, num = getLossMask(all_output, seq_list[0], seq_list[1:], using_cuda=self.args.using_cuda)
-            error, error_cnt, final_error, final_error_cnt = L2forTestS(all_output, batch_norm[1:, :, :2],
+            lossmask, num = getLossMask(outputs_infer, seq_list[0], seq_list[1:], using_cuda=self.args.using_cuda)
+            error, error_cnt, final_error, final_error_cnt = L2forTestS(outputs_infer, batch_norm[1:, :, :2],
                                                                         self.args.obs_length, lossmask)
 
             error_epoch += error
