@@ -166,7 +166,7 @@ class processor(object):
                     )
             elif self.args.scheduler_method == "Cosine":
                 self.scheduler = CosineAnnealingLR(
-                    self.optimizer, T_max=10
+                    self.optimizer, T_max=10, eta_min=0.0005
                     )
             else:
                 pass
