@@ -296,10 +296,11 @@ class processor(object):
 
             outputs_infer = self.net.forward(inputs_forward, iftest=True)
             self.net.zero_grad()
+            outputs_infer = outputs_infer.unsqueeze(0)
 
             lossmask, num = getLossMask(outputs_infer, seq_list[0], seq_list[1:], using_cuda=self.args.using_cuda)
             error, error_cnt, final_error, final_error_cnt = L2forTestS(outputs_infer, batch_norm[1:, :, :2],
-                                                                        self.args.obs_length, lossmask)
+                                                                        self.args.obs_length, lossmask, num_samples=1)
 
             error_epoch += error
             error_cnt_epoch += error_cnt

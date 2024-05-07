@@ -120,7 +120,7 @@ if __name__ == '__main__':
 
     model_Hparameters = {
         "emb": 32, 
-        "n_layers": 6, 
+        "n_layers": 1, 
         "config": config, 
         "previous_use_GM": True
         }
