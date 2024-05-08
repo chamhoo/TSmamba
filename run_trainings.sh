@@ -31,7 +31,7 @@ for pair in "${pairs[@]}"; do
         --learning_rate ${learning_rate} \
         --scheduler_method Cosine \
         --num_epochs 50 \
-        --save_base_dir "hspa_${X}_${Y}" \
+        --save_base_dir "hspa_${learning_rate}_${X}_${Y}" \
         --n_layers ${X} \
         --n_encoders ${Y}
 done
