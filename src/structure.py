@@ -107,7 +107,7 @@ class PFA(torch.nn.Module):
         # outputs  [bs, num of ped, 2]
         # GM       [bs, num of ped, 32 (embedding size)]
         outputs = torch.zeros(nodes_norm.shape[0], num_Ped, 2).cuda()
-        GM = torch.zeros(nodes_norm.shape[0], num_Ped, self.emb).cuda()
+        GM = torch.zeros(nodes_norm.shape[0]+1, num_Ped, self.emb).cuda()
 
         # Loop through each frame in the sequence except the last one
         # T = framenum + 1
@@ -127,10 +127,9 @@ class PFA(torch.nn.Module):
                 batch_pednum = self.update_batch_pednum(pednum, node_index)
                 coordinate = nodes_norm[:framenum + 1, node_index]
 
-            # TODO: ADD forward 
-            output, output_emb = self.model(coordinate, GM[:framenum, node_index], batch_pednum)  # forward(self, x, gm, batch_pednum)
-            
+            # forward
+            output, output_emb = self.model(coordinate, GM[framenum, node_index], batch_pednum)  # forward(self, x, gm, batch_pednum)
             # Update the outputs and GM with the current frame's output
             outputs[framenum, node_index] = output
-            GM[framenum, node_index] = output_emb
+            GM[framenum+1, node_index] = output_emb
         return outputs

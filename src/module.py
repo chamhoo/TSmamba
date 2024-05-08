@@ -55,26 +55,38 @@ def slice_and_concat(emb_features, updated_batch_pednum):
 
 
 class TSMambaBlock(nn.Module):
-    def __init__(self, emb, tmp_config, spa_config):
+    def __init__(self, emb, n_encoders, tmp_config, spa_config):
         super().__init__()
         self.emb = emb
+        self.n_encoders = n_encoders
         self.norm = nn.LayerNorm(normalized_shape=emb)
 
-        self.tempblock = Mamba(emb, **tmp_config)
-        self.spablock = Mamba(emb, **spa_config)
+        self.earlyfuse = nn.Linear(2*emb, emb)
 
-    def forward(self, x, batch_pednum, previous_expression):
+        self.tempblocks = nn.ModuleList([Mamba(emb, **tmp_config) for _ in range(n_encoders)])
+        self.spablocks = nn.ModuleList([Mamba(emb, **spa_config) for _ in range(n_encoders)])
+
+        # self.tempblock = Mamba(emb, **tmp_config)
+        # self.spablock = Mamba(emb, **spa_config)
+
+    def forward(self, x, batch_pednum, pre_expression, pre_traj, is_initial: bool):
         # norm
         x = self.norm(x.to(dtype=self.norm.weight.dtype))
         
-        # tempblock
-        combined_expression = torch.cat((previous_expression, x.unsqueeze(0)), dim=0)
-        temp = combined_expression.permute(1, 0, 2)  # Reordering dimensions to [ped, 4, dim]
-        temp = self.tempblock(temp)[:, -1, :]
-        
-        # spablock
-        spa = gather_features(x, batch_pednum, self.emb)
-        spa = self.spablock(spa)
-        spa = slice_and_concat(spa, batch_pednum)
+        temp = x
+        spa = x
+        for i in range(self.n_encoders):            
+            # tempblock
+            if i==0:
+                combined_expression = torch.cat((pre_traj, temp.unsqueeze(0)), dim=0)
+                temp = combined_expression.permute(1, 0, 2)  # Reordering dimensions to [ped, 4, dim]
+            temp = self.tempblocks[i](temp)
 
-        return x + temp + spa
+            # prefuse the previous interaction info into current spatial inputs
+            if is_initial and (i==0):
+                spa = self.earlyfuse(torch.concat((spa, pre_expression), dim=1))
+
+            spa = gather_features(spa, batch_pednum, self.emb)
+            spa = self.spablocks[i](spa)
+            spa = slice_and_concat(spa, batch_pednum)
+        return x + temp[:, -1, :] + spa

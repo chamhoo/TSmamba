@@ -16,14 +16,13 @@ def get_noise(shape, noise_type):
 
 class TSModel(nn.Module):
 
-    def __init__(self, emb=32, n_layers=3, config=None, previous_use_GM=True):
+    def __init__(self, emb=32, n_layers=3, n_encoders=1, config=None):
         super(TSModel, self).__init__()
-        self.previous_use_GM = previous_use_GM
         # Embedding
         self.input_1 = nn.Linear(2, 128)  # 第一个全连接层
         self.input_2 = nn.Linear(128, emb)  # 第二个全连接层，输出到嵌入维度
         # 创建多个TSMambaBlock层
-        self.blocks = nn.ModuleList([TSMambaBlock(emb, **config) for _ in range(n_layers)])
+        self.blocks = nn.ModuleList([TSMambaBlock(emb, n_encoders, **config) for _ in range(n_layers)])
         self.output = nn.Linear(emb, 2)
     
     def forward(self, inputs, gm, batch_pednum):
@@ -35,13 +34,11 @@ class TSModel(nn.Module):
         # separarte x
         x_part1 = inputs[:-1]  
         x = inputs[-1]
-
-        previous = gm if self.previous_use_GM else x_part1
-
+        is_initial = True
         # 顺序通过每个TSMambaBlock
         for block in self.blocks:
-            x = block(x, batch_pednum, previous)   # x, batch_pednum, previous_expression
-        
+            x = block(x, batch_pednum, gm, x_part1, is_initial)   # x, batch_pednum, previous_expression
+            is_initial = False
         # add noise
         # noise = get_noise((1, 16), 'gaussian')
         # noise_to_cat = noise.repeat(x.shape[0], 1)

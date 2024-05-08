@@ -56,6 +56,9 @@ def get_parser():
     parser.add_argument('--randomRotate', default=True, type=ast.literal_eval,
                         help="=True:random rotation of each trajectory fragment")
     parser.add_argument('--clip', default=1, type=int)
+    # --------
+    parser.add_argument('--n_layers', default=3, type=int)
+    parser.add_argument('--n_encoders', default=2, type=int)
 
     return parser
 
@@ -120,10 +123,11 @@ if __name__ == '__main__':
 
     model_Hparameters = {
         "emb": 32, 
-        "n_layers": 1, 
-        "config": config, 
-        "previous_use_GM": True
+        "n_layers": args.n_layers,
+        "n_encoders": args.n_encoders, 
+        "config": config
         }
+    
     trainer = processor(args, model_parameters=model_Hparameters)
 
     if args.phase == 'test':
