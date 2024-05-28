@@ -192,6 +192,7 @@ class processor(object):
                 
                 # if best epoch:
                 if (test_final_error <= self.best_fde) or (test_error <= self.best_ade):
+                    
                     self.save_model(epoch, train_loss)
                     self.best_epoch = epoch
                 else:
@@ -294,13 +295,25 @@ class processor(object):
             # self.net.zero_grad()
             # all_output = torch.stack(all_output)
 
-            outputs_infer = self.net.forward(inputs_forward, iftest=True)
-            self.net.zero_grad()
-            outputs_infer = outputs_infer.unsqueeze(0)
+            if self.args.determine:
+                all_output = self.net.forward(inputs_forward, iftest=True)
+                self.net.zero_grad()
+                all_output = all_output.unsqueeze(0)
 
-            lossmask, num = getLossMask(outputs_infer, seq_list[0], seq_list[1:], using_cuda=self.args.using_cuda)
-            error, error_cnt, final_error, final_error_cnt = L2forTestS(outputs_infer, batch_norm[1:, :, :2],
-                                                                        self.args.obs_length, lossmask, num_samples=1)
+                lossmask, num = getLossMask(all_output, seq_list[0], seq_list[1:], using_cuda=self.args.using_cuda)
+                error, error_cnt, final_error, final_error_cnt = L2forTestS(all_output, batch_norm[1:, :, :2],
+                                                                            self.args.obs_length, lossmask, num_samples=1)
+            else:
+                all_output = []
+                for i in range(self.args.sample_num):
+                    outputs_infer = self.net.forward(inputs_forward, iftest=True)
+                    all_output.append(outputs_infer)
+                    self.net.zero_grad()
+                all_output = torch.stack(all_output)
+
+                lossmask, num = getLossMask(all_output, seq_list[0], seq_list[1:], using_cuda=self.args.using_cuda)
+                error, error_cnt, final_error, final_error_cnt = L2forTestS(all_output, batch_norm[1:, :, :2],
+                                                                            self.args.obs_length, lossmask, num_samples=self.args.sample_num)
 
             error_epoch += error
             error_cnt_epoch += error_cnt

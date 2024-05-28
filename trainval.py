@@ -35,8 +35,8 @@ def get_parser():
     parser.add_argument('--patience', default=10, type=int)
     parser.add_argument('--scheduler_method', default="Cosine", type=str, help="OneCycleLR/ReduceLROnPlateau/Cosine/None")
     parser.add_argument('--learning_rate', default=0.001, type=float)
-    parser.add_argument('--early_stop', default=True, type=bool)
-    parser.add_argument('--num_epochs', default=100, type=int)
+    parser.add_argument('--early_stop', default=1, type=int)
+    parser.add_argument('--num_epochs', default=50, type=int)
 
     # &&&&&&&&&&&&&& LEVEL 2 Arguments: Rarely Changes &&&&&&&&&&&&&& 
     # Data Processing  --------------------------------------
@@ -52,14 +52,12 @@ def get_parser():
     parser.add_argument('--using_cuda', default=True, type=ast.literal_eval)
     # parser.add_argument('--model', default='star.STAR')
     # train --------------------------------------------------
+    parser.add_argument('--determine', default=1, type=int)
     parser.add_argument('--sample_num', default=20, type=int)
     parser.add_argument('--randomRotate', default=True, type=ast.literal_eval,
                         help="=True:random rotation of each trajectory fragment")
     parser.add_argument('--clip', default=1, type=int)
-    # --------
-    parser.add_argument('--n_layers', default=3, type=int)
-    parser.add_argument('--n_encoders', default=2, type=int)
-
+    parser.add_argument('--emb', default=32, type=int)
     return parser
 
 
@@ -115,16 +113,18 @@ if __name__ == '__main__':
 
     spa_config = {"bimamba_type": "v2"}
 
+
+    pre_config = {"bimamba_type": "v2"}
+
     config = {
         "tmp_config": tmp_config, 
+        "pre_config": pre_config,
         "spa_config": spa_config
         }
 
 
     model_Hparameters = {
-        "emb": 32, 
-        "n_layers": args.n_layers,
-        "n_encoders": args.n_encoders, 
+        "emb": 48, 
         "config": config
         }
     

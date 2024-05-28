@@ -9,7 +9,8 @@ class PFA(torch.nn.Module):
     def __init__(self, args, model_Hparameters):
         super(PFA, self).__init__()
         self.args = args
-        self.model = TSModel(**model_Hparameters)  # def __init__(self, emb=32, n_layers=3, config=None, previous_use_GM=True):
+        isdetermine = self.args.determine
+        self.model = TSModel(isdetermine, **model_Hparameters)  # def __init__(self, emb=32, n_layers=3, config=None, previous_use_GM=True):
         self.emb = model_Hparameters["emb"]
 
 
@@ -107,7 +108,7 @@ class PFA(torch.nn.Module):
         # outputs  [bs, num of ped, 2]
         # GM       [bs, num of ped, 32 (embedding size)]
         outputs = torch.zeros(nodes_norm.shape[0], num_Ped, 2).cuda()
-        GM = torch.zeros(nodes_norm.shape[0]+1, num_Ped, self.emb).cuda()
+        GM = torch.zeros(nodes_norm.shape[0], num_Ped, self.emb).cuda()
 
         # Loop through each frame in the sequence except the last one
         # T = framenum + 1
@@ -128,8 +129,8 @@ class PFA(torch.nn.Module):
                 coordinate = nodes_norm[:framenum + 1, node_index]
 
             # forward
-            output, output_emb = self.model(coordinate, GM[framenum, node_index], batch_pednum)  # forward(self, x, gm, batch_pednum)
+            output, output_emb = self.model(coordinate, GM[:framenum, node_index], batch_pednum)  # forward(self, x, gm, batch_pednum)
             # Update the outputs and GM with the current frame's output
             outputs[framenum, node_index] = output
-            GM[framenum+1, node_index] = output_emb
+            GM[framenum, node_index] = output_emb
         return outputs

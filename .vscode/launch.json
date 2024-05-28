@@ -13,7 +13,7 @@
             "program": "trainval.py",
             "console": "integratedTerminal",
             "args": [
-                "--test_set", "hotel", "--phase", "train"],
+                "--test_set", "eth", "--phase", "train", "--determine", "0"],
             "justMyCode": false,
         }
     ]
