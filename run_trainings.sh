@@ -12,16 +12,7 @@ cuda_device=$2
 
 # 定义参数对
 declare -a pairs=(
-    "0 hotel"
-    "0 eth"
-    "0 zara1"
-    "0 zara2"
-    "0 univ"
-    "1 eth"
-    "1 hotel"
     "1 zara1"
-    "1 zara2"
-    "1 univ"
 )
 
 # 循环遍历每对参数
@@ -33,7 +24,8 @@ for pair in "${pairs[@]}"; do
     CUDA_VISIBLE_DEVICES=${cuda_device} python trainval.py \
         --learning_rate ${learning_rate} \
         --determine ${X} \
-        --num_epochs 50 \
+        --num_epochs 100 \
+        --patience 20\
         --test_set ${Y} \
         --emb 48  \
         --save_base_dir "result_hspa_lr_${learning_rate}_determine_${X}_test_set_${Y}" 
