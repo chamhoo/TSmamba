@@ -79,9 +79,9 @@ class TSMambaBlock(nn.Module):
         #     spa = self.earlyfuse(torch.concat((x, fuse[:,-1,:]), dim=1))
         # else:
         #     spa = x
-        spa = self.earlyfuse(torch.concat((x, temp), dim=1))
-        # spa
-        spa = gather_features(spa, batch_pednum, self.emb)
-        spa = self.spablock(spa)
-        spa = slice_and_concat(spa, batch_pednum)
-        return x + temp + spa
+        # spa = self.earlyfuse(torch.concat((x, temp), dim=1))
+        # # spa
+        # spa = gather_features(spa, batch_pednum, self.emb)
+        # spa = self.spablock(spa)
+        # spa = slice_and_concat(spa, batch_pednum)
+        return x + temp #+ spa
