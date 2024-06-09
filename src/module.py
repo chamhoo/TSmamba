@@ -72,12 +72,11 @@ class TSMambaBlock(nn.Module):
             # input_size=48, hidden_size=48, num_layers=1
             self.tempblock = LSTMTimeSeriesModel(emb, emb, 1)
 
-    def forward(self, x, gm, batch_pednum, pre_traj):
+    def forward(self, x):
         # norm
-        x = self.norm(x.to(dtype=self.norm.weight.dtype))
-        
-        combined_expression = torch.cat((pre_traj, x.unsqueeze(0)), dim=0)
-        temp = combined_expression.permute(1, 0, 2)  # Reordering dimensions to [ped, 4, dim]
+        # x = self.norm(x.to(dtype=self.norm.weight.dtype))
+    
+        temp = x.permute(1, 0, 2)  # Reordering dimensions to [ped, 4, dim]
         temp = self.tempblock(temp)[:, -1, :]
 
         # prefuse
@@ -92,4 +91,4 @@ class TSMambaBlock(nn.Module):
         # spa = gather_features(spa, batch_pednum, self.emb)
         # spa = self.spablock(spa)
         # spa = slice_and_concat(spa, batch_pednum)
-        return x + temp #+ spa
+        return temp #+ spa

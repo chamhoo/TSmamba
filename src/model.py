@@ -39,20 +39,13 @@ class TSModel(nn.Module):
         inputs = self.input_2(inputs)  # 不在最后一个层使用激活函数
 
         # separarte x
-        x_part1 = inputs[:-1]  
-        x = inputs[-1]
+        # x_part1 = inputs[:-1]  
+        # x = inputs[-1]
 
         # 顺序通过每个TSMambaBlock
-        x = self.block(x, gm, batch_pednum, x_part1)   # x, batch_pednum, previous_expression
+        x = self.block(inputs)   # x, batch_pednum, previous_expression
         if self.isdetermine:
             # add act
             return self.output(self.act(x)), x
-        else:
-            # add noise
-            noise = get_noise((1, 16), 'gaussian')
-            noise_to_cat = noise.repeat(x.shape[0], 1)
-            x_with_noise = torch.cat((x, noise_to_cat), dim=1)
-            # output
-            return self.output(x_with_noise), x
 
     
