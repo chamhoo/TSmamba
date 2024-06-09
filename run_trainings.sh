@@ -20,4 +20,5 @@ CUDA_VISIBLE_DEVICES=${cuda_device} python trainval.py \
     --patience 20\
     --test_set "zara1" \
     --emb 48  \
+    --v ${version}
     --save_base_dir "result_encoders_testset_zara1_version_${version}"  
