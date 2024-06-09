@@ -10,7 +10,7 @@ class PFA(torch.nn.Module):
         super(PFA, self).__init__()
         self.args = args
         isdetermine = self.args.determine
-        self.model = TSModel(isdetermine, **model_Hparameters)  # def __init__(self, emb=32, n_layers=3, config=None, previous_use_GM=True):
+        self.model = TSModel(isdetermine, args, **model_Hparameters)  # def __init__(self, emb=32, n_layers=3, config=None, previous_use_GM=True):
         self.emb = model_Hparameters["emb"]
 
 
@@ -98,6 +98,23 @@ class PFA(torch.nn.Module):
         return node_abs.permute(1, 0, 2)
 
 
+    def center_alignment_spa(self, data, st_ed):
+        """
+        :param data: Absolute coordinates of pedestrians
+        :type Tensor
+        :param st_ed: list of tuple indicates the indices of pedestrians belonging to the same scene
+        :type List of tupule
+        :return: data: Normalized absolute coordinates of pedestrians
+        :rtype: Tensor
+        """
+        data = data.permute(1, 0, 2)
+        for st, ed in st_ed:
+            center = torch.mean(data[st:ed], axis=0)
+            data[st:ed]  = data[st:ed] - center  # torch.Size([12, 1, 2])
+        return data.permute(1, 0, 2)
+    
+
+
     def forward(self, inputs, iftest=False):
         # Unpack inputs tuple into respective variables
         # nodes_abs, nodes_norm, shift_value, seq_list, nei_lists, nei_num, pednum = inputs
@@ -121,15 +138,32 @@ class PFA(torch.nn.Module):
 
                 # 对于 obs_length 之后的frames，在预测阶段将不能使用真实轨迹数据
                 coord_pred = outputs[self.args.obs_length - 1:framenum, node_index]
-                coordinate = torch.cat((nodes_norm[:self.args.obs_length, node_index], coord_pred))
+                # temp
+                coord_temp = torch.cat((nodes_norm[:self.args.obs_length, node_index], coord_pred))
+                # spa
+                coord_spa_pred = coord_pred + shift_value[self.args.obs_length:framenum + 1, node_index]
+                coord_spa = torch.cat((nodes_abs[:self.args.obs_length, node_index], coord_spa_pred))
+
 
             else:
                 node_index = self.get_node_index(seq_list[:framenum + 1])
                 batch_pednum = self.update_batch_pednum(pednum, node_index)
-                coordinate = nodes_norm[:framenum + 1, node_index]
+                # temp
+                coord_temp = nodes_norm[:framenum + 1, node_index]
+                # spa
+                coord_spa = nodes_abs[:framenum + 1, node_index]
 
+            # norm spa
+            st_ed = self.get_st_ed(pednum)
+            coord_spa = self.center_alignment_spa(coord_spa, st_ed)
+
+            if self.args.v in [2,3]:
+                coord = coord_temp
+            elif self.args.v in [1,4,5]:
+                coord = coord_spa
+            
             # forward
-            output, output_emb = self.model(coordinate, GM[:framenum, node_index], batch_pednum)  # forward(self, x, gm, batch_pednum)
+            output, output_emb = self.model(coord, GM[:framenum, node_index], batch_pednum)  # forward(self, x, gm, batch_pednum)
             # Update the outputs and GM with the current frame's output
             outputs[framenum, node_index] = output
             GM[framenum, node_index] = output_emb

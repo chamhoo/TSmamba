@@ -16,15 +16,16 @@ def get_noise(shape, noise_type):
 
 class TSModel(nn.Module):
 
-    def __init__(self, isdetermine, emb=32, config=None):
+    def __init__(self, isdetermine, args, emb=32, config=None):
         super(TSModel, self).__init__()
         self.isdetermine = isdetermine
+        self.args = args
         # Embedding
         self.input_1 = nn.Linear(2, 128, bias=True)  # 第一个全连接层
         self.input_2 = nn.Linear(128, emb)  # 第二个全连接层，输出到嵌入维度
         # self.earlyfuse = nn.Linear(2*emb, emb)
         # 创建多个TSMambaBlock层
-        self.block = TSMambaBlock(emb, **config)
+        self.block = TSMambaBlock(emb, args, **config)
         if self.isdetermine:
             self.output = nn.Linear(emb, 2, bias=True)
         else:

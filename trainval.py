@@ -58,6 +58,7 @@ def get_parser():
                         help="=True:random rotation of each trajectory fragment")
     parser.add_argument('--clip', default=1, type=int)
     parser.add_argument('--emb', default=32, type=int)
+    parser.add_argument('--v', default=1, type=int)
     return parser
 
 

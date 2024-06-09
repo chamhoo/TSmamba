@@ -1,41 +1,34 @@
 #!/bin/bash
 
 # 检查是否提供了足够的参数
-if [ "$#" -ne 2 ]; then
-    echo "Usage: $0 <learning_rate> <cuda_device>"
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 <cuda_device>"
     exit 1
 fi
 
 # 读取命令行中提供的学习率和CUDA设备号
-learning_rate=$1
-cuda_device=$2
+cuda_device=$1
 
 # 定义参数对
 declare -a pairs=(
-    "1 zara1"
+    "eth"
+    "hotel"
+    "zara1"
+    "zara2"
+    "univ"
 )
-
 # 循环遍历每对参数
 for pair in "${pairs[@]}"; do
     # 读取X和Y值
-    read X Y <<< "$pair"
+    read X <<< "$pair"
     
     # 构建并执行训练命令，设置CUDA_VISIBLE_DEVICES
     CUDA_VISIBLE_DEVICES=${cuda_device} python trainval.py \
-        --learning_rate ${learning_rate} \
-        --determine ${X} \
-        --num_epochs 100 \
+        --learning_rate 0.001 \
+        --determine 1 \
+        --num_epochs 200 \
         --patience 20\
-        --test_set ${Y} \
+        --test_set ${X} \
         --emb 48  \
-        --save_base_dir "result_hspa_lr_${learning_rate}_determine_${X}_test_set_${Y}" 
+        --save_base_dir "result_puretemp_testset_${X}"  
 done
-
-
-    # CUDA_VISIBLE_DEVICES=${cuda_device} python trainval.py \
-    #     --learning_rate ${learning_rate} \
-    #     --scheduler_method Cosine \
-    #     --num_epochs 50 \
-    #     --save_base_dir "hspa_${learning_rate}_${X}_${Y}" \
-    #     --n_layers ${X} \
-    #     --n_encoders ${Y}

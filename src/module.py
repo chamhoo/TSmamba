@@ -9,6 +9,8 @@ import time
 from mamba_ssm.modules.mamba_simple import Mamba
 from mamba_ssm.ops.triton.layernorm import RMSNorm, layer_norm_fn, rms_norm_fn
 
+from .encoders import TimeSeriesTransformer, LSTMTimeSeriesModel
+
 
 def gather_features(spatial_input_embedded, updated_batch_pednum, num_emb):
     N_of_scenes = updated_batch_pednum.shape[0]
@@ -55,14 +57,20 @@ def slice_and_concat(emb_features, updated_batch_pednum):
 
 
 class TSMambaBlock(nn.Module):
-    def __init__(self, emb, tmp_config, pre_config, spa_config):
+    def __init__(self, emb, args, tmp_config, pre_config, spa_config):
         super().__init__()
         self.emb = emb
+        self.args = args
         self.norm = nn.LayerNorm(normalized_shape=emb)
         self.earlyfuse = nn.Linear(2*emb, emb)
-        self.tempblock = Mamba(emb, **tmp_config)
-        self.preblock = Mamba(emb, **pre_config)
-        self.spablock = Mamba(emb, **spa_config)
+        if self.args.v == 1:
+            self.tempblock = Mamba(emb, **tmp_config)
+        elif self.args.v in [3, 5]:
+            # embedding_size=48, num_layers=1, num_heads=8
+            self.tempblock = TimeSeriesTransformer(emb, 1, 8)
+        elif self.args.v in [2, 4]:
+            # input_size=48, hidden_size=48, num_layers=1
+            self.tempblock = LSTMTimeSeriesModel(emb, emb, 1)
 
     def forward(self, x, gm, batch_pednum, pre_traj):
         # norm

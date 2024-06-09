@@ -13,7 +13,11 @@
             "program": "trainval.py",
             "console": "integratedTerminal",
             "args": [
-                "--test_set", "eth", "--phase", "train", "--determine", "0"],
+                "--test_set", "zara1", 
+                "--phase", "train", 
+                "--learning_rate", "0.001", 
+                "--emb", "48",
+                "--v", "3"],
             "justMyCode": false,
         }
     ]
